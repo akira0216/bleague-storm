@@ -11,7 +11,9 @@ const LEN = 14, WID = 7.5;  // コートの半分の長さ・幅
 const CPU_NERF = 0.1;       // CPUをどのレベルでも全体に約10%弱くする
 const VIS = 1.2;            // 見やすいように選手を大きく描く（判定は本当の身長のまま）
 const POS_H = { PG: 1.84, SG: 1.92, SF: 1.98, PF: 2.04, C: 2.1 };
-const PERFECT = 1.0;        // シュートゲージのいちばん上（ここで離すとパーフェクト）
+const DEF_BOOST = 1.3;      // 自分のチームが守るときの スティール・パスカット・シュートの守り・ブロック の強さ
+const CPU_INSIDE = { dunk: 0.10, layup: 0.06 }; // CPUのダンク・レイアップを入りにくくする分（強さ5でちょうどこの分）
+const PERFECT = 1.0;       // シュートゲージのいちばん上（ここで離すとパーフェクト）
 const FILL_TIME = 0.68;     // ゲージがいちばん上まで溜まる時間（秒）
 const rand = Math.random;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -2450,11 +2452,13 @@ class Match {
     else if (kind === 'layup') { attr = r.drive; base = 0.54 + attr * 0.0034; }
     else if (kind === 'mid') { attr = r.mid; base = 0.28 + attr * 0.0042 - Math.max(0, dist - 2.2) * 0.018; }
     else { attr = r.three; base = 0.12 + attr * 0.0042 - Math.max(0, dist - 7.3) * 0.07; }
+    if (side === 1) base -= CPU_INSIDE[kind] || 0;
     const { q: dfd, d: dd } = this.nearestOpp(p);
     let pen = kind === 'ft' ? 0 : Math.max(0, 1.6 - dd) * 0.14 * (dfd.r.def / 70) * (kind === 'dunk' ? 0.5 : 1);
     if (kind !== 'ft' && dfd.y > 0.25 && dd < 1.4) pen += 0.08;
     if (dfd.lock && dd < 1.6) pen += 0.04;
     if (this.has(dfd, 'lockdown') && dd < 1.6) pen += 0.05;
+    if (dfd.side === 0) pen *= DEF_BOOST;
     // タイミング
     const val = p.actT / FILL_TIME;
     const w = this.shotWindow(p);
@@ -2477,7 +2481,7 @@ class Match {
     // ブロック
     const jumper = kind === 'ft' ? null : this.players[1 - side].find(q => q.y > 0.25 && d2(q.pos, p.pos) < 1.4);
     const blk = jumper ? this.ifx(jumper).block / 150 + (this.has(jumper, 'sky') ? 0.05 : 0) : 0;
-    if (jumper && rand() < (0.2 + (jumper.r.def - 60) / 150 + blk) * (three ? 0.5 : kind === 'dunk' ? 0.6 : 1)) {
+    if (jumper && rand() < (0.2 + (jumper.r.def - 60) / 150 + blk) * (three ? 0.5 : kind === 'dunk' ? 0.6 : 1) * (jumper.side === 0 ? DEF_BOOST : 1)) {
       this.box(jumper).blk++;
       this.call('ブロック！', jumper.info.name, 'BLOCK', jumper.side);
       if (SFX) SFX.dribble(1);
@@ -2492,7 +2496,8 @@ class Match {
     }
 
     const made = rand() < prob;
-    const foul = kind !== 'ft' && ((p.layup && dd < 0.9 && rand() < 0.18) || (!p.layup && dd < 0.7 && rand() < 0.06));
+    const mine = dfd.side === 0; // 自分のチームはファウルになりにくい
+    const foul = kind !== 'ft' && ((p.layup && dd < 0.9 && rand() < (mine ? 0.12 : 0.18)) || (!p.layup && dd < 0.7 && rand() < (mine ? 0.04 : 0.06)));
     if (foul) this.teamFouls[dfd.side]++;
     const b = this.ball;
     b.holder = null;
@@ -2767,15 +2772,16 @@ class Match {
     const h = this.ball.holder;
     if (!h || h.side === d.side || d2(h.pos, d.pos) > 1.5 || h.act === 'shoot' || (h.safeUntil || 0) > this.time) return;
     if (h.sprint && this.has(h, 'driveSafe')) return; // 疾風ゼロ：ドライブ中はとられない
-    const p = clamp(0.1 + (d.r.def - (h.r.pass + h.r.drive) / 2) / 220 + (d.side === 1 ? this.f * 0.04 - CPU_NERF * 0.3 : 0), 0.02, 0.4)
+    let p = clamp(0.1 + (d.r.def - (h.r.pass + h.r.drive) / 2) / 220 + (d.side === 1 ? this.f * 0.04 - CPU_NERF * 0.3 : 0), 0.02, 0.4)
       + this.ifx(d).steal / 200;
+    if (d.side === 0) p *= DEF_BOOST;
     if (rand() < p) {
       if (this.has(d, 'fastBreak')) d.fbUntil = this.time + 4;
       this.box(d).stl++;
       this.call('スティール！', d.info.name, 'STEAL', d.side);
       this.fx('stop', d.side);
       this.give(d, true);
-    } else if (rand() < 0.12) {
+    } else if (rand() < (d.side === 0 ? 0.08 : 0.12)) {
       const n = ++this.teamFouls[d.side];
       if (n >= 5) {
         this.call('チームファウル', `${n}つ目　フリースロー`, 'FOUL', h.side);
@@ -3132,6 +3138,7 @@ class Match {
           if (q.stun > 0) return;
           let pc = clamp(0.18 + (q.r.def - 60) / 160 + (q.side === 1 ? this.f * 0.06 - CPU_NERF * 0.4 : 0), 0.03, 0.5);
           pc += this.ifx(q).steal / 250 + (this.has(q, 'readPass') ? 0.08 : 0);
+          if (q.side === 0) pc *= DEF_BOOST;
           if (this.has(b.from, 'noCut')) pc *= 0.4;
           if (rand() < pc) { if (this.has(q, 'fastBreak')) q.fbUntil = this.time + 4; this.box(q).stl++; this.call('パスカット！', q.info.name, 'STEAL', q.side); this.fx('stop', q.side); this.give(q, true); }
         });
