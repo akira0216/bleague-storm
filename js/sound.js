@@ -62,7 +62,8 @@ window.Sound = (() => {
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
   }
 
-  const ready = () => ctx && ctx.state === 'running';
+  let recording = false;
+  const ready = () => recording || (ctx && ctx.state === 'running');
 
   // ---------- 観客 ----------
   function startCrowd() {
@@ -335,18 +336,51 @@ window.Sound = (() => {
     });
   }
 
-  // バッシュのキュッ
-  function squeak() {
+  // バッシュのキュッ（v：大きさ 0〜1、n：何回鳴らすか。2なら「キュッキュッ」）
+  // 本物は、ゴムの靴底が床にくっつく・すべるをとても速くくり返して鳴る（スティックスリップ）。
+  // 高い音を、ガタガタと速くゆらして作る
+  function squeak(v = 1, n = 1) {
     if (!ready()) return;
-    const t = ctx.currentTime;
+    for (let j = 0; j < n; j++) chirp(ctx.currentTime + j * (0.08 + Math.random() * 0.05), v * (j ? 0.75 : 1));
+  }
+
+  function chirp(t, v) {
+    const len = 0.06 + Math.random() * 0.09;
+    const f0 = 1900 + Math.random() * 900;
+    const f1 = f0 * (1.2 + Math.random() * 0.35);
     const o = ctx.createOscillator();
-    o.frequency.setValueAtTime(1900 + Math.random() * 600, t);
-    o.frequency.linearRampToValueAtTime(2600 + Math.random() * 600, t + 0.07);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.linearRampToValueAtTime(f1, t + len * 0.55);
+    o.frequency.linearRampToValueAtTime(f1 * 0.9, t + len);
+    // 音の高さについていく、せまい帯域（キーンとした芯）
+    const bp = filt('bandpass', f0, 7);
+    bp.frequency.setValueAtTime(f0, t);
+    bp.frequency.linearRampToValueAtTime(f1, t + len * 0.55);
+    // くっつく・すべるのガタガタ（速い音量のゆれ）
+    const am = ctx.createGain();
+    am.gain.value = 0.55;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'triangle';
+    lfo.frequency.value = 70 + Math.random() * 70;
+    const lg = ctx.createGain();
+    lg.gain.value = 0.3;
+    lfo.connect(lg).connect(am.gain);
     const g = ctx.createGain();
-    env(g, t, 0.035, 0.005, 0.07);
-    o.connect(g).connect(master);
-    o.start(t);
-    o.stop(t + 0.1);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.24 * v, t + 0.008);
+    g.gain.setValueAtTime(0.24 * v, t + len * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(bp).connect(am).connect(g).connect(master);
+    o.start(t); o.stop(t + len + 0.02);
+    lfo.start(t); lfo.stop(t + len + 0.02);
+    // ゴムがこすれる、ざらっとした音を少し
+    const s = noiseSrc();
+    const nb = filt('bandpass', 3200, 1.5);
+    const ng = ctx.createGain();
+    env(ng, t, 0.012 * v, 0.004, len);
+    s.connect(nb).connect(ng).connect(master);
+    s.start(t, Math.random()); s.stop(t + len + 0.05);
   }
 
   // ---------- BGM（アリーナ向けのトラップ／ヒップホップ風ビート。100BPM・16小節） ----------
@@ -582,6 +616,18 @@ window.Sound = (() => {
     bgm = null;
   }
 
+  // 効果音を録音する（確認用）：fn の中で鳴らした音を、sec 秒分の AudioBuffer にして返す。先に unlock() しておくこと
+  function renderSfx(fn, sec = 1.5) {
+    const keep = { ctx, master };
+    const c = new OfflineAudioContext(1, Math.ceil(keep.ctx.sampleRate * sec), keep.ctx.sampleRate);
+    ctx = c;
+    master = c.createGain();
+    master.connect(c.destination);
+    recording = true;
+    try { fn(); } finally { ctx = keep.ctx; master = keep.master; recording = false; }
+    return c.startRendering();
+  }
+
   // BGM を録音する（確認用）：sec 秒分を OfflineAudioContext で作って AudioBuffer を返す
   function renderBgm(sec = 40) {
     const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -596,7 +642,7 @@ window.Sound = (() => {
   }
 
   return {
-    unlock, setOn, setBgmOn, startBgm, stopBgm, renderBgm, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
+    unlock, setOn, setBgmOn, startBgm, stopBgm, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
     get on() { return on; },
     get state() { return ctx ? ctx.state : "none"; },
   };

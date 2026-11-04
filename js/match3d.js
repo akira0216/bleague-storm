@@ -9,7 +9,7 @@ const HX = 12.425;          // リングの中心（センターからの距離�
 const RIM_Y = 3.05;
 const BALL_R = 0.13;        // ボールが床についたときの中心の高さ
 const LEN = 14, WID = 7.5;  // コートの半分の長さ・幅
-const CPU_NERF = 0.1;       // CPUをどのレベルでも全体に約10%弱くする
+const CPU_NERF = 0.2;       // CPUをどのレベルでも全体に弱くする（能力 −14%、シュート −8% など）
 const VIS = 1.2;            // 見やすいように選手を大きく描く（判定は本当の身長のまま）
 const POS_H = { PG: 1.84, SG: 1.92, SF: 1.98, PF: 2.04, C: 2.1 };
 const DEF_BOOST = 1.3;      // 自分のチームが守るときの スティール・パスカット・シュートの守り・ブロック の強さ
@@ -2441,7 +2441,8 @@ class Match {
     if (p.side === 1 || p !== this.ctrl) {
       const attr = this.shotAttr(p);
       const sd = clamp(0.13 - (attr - 50) * 0.0018, 0.035, 0.15);
-      p.cpuRelease = clamp(PERFECT + gauss() * sd * 0.7, 0.3, 1.3) * FILL_TIME;
+      // CPU はタイミングのばらつきを大きく（早すぎ・遅すぎで外すこともある）。自分の味方の自動シュートは今まで通り
+      p.cpuRelease = clamp(PERFECT + gauss() * sd * (p.side === 1 ? 1 : 0.7), 0.3, 1.3) * FILL_TIME;
     }
     // 近くの相手がブロックに跳ぶ
     if (p.shotKind !== 'ft') this.players[1 - p.side].forEach(q => {
@@ -3066,7 +3067,7 @@ class Match {
         const tx = p.tgt.x - p.pos.x, tz = p.tgt.z - p.pos.z, l = Math.hypot(tx, tz);
         if (l > 0.12) { const k = Math.min(1, l / 1.2); dx = tx / l * k; dz = tz / l * k; }
       }
-      const base = (4.6 + (p.r.drive + p.r.def) * 0.012 + (p.side === 1 ? this.f * 0.25 : 0)) * (p.side === 1 ? 1 - CPU_NERF * 0.8 : 1);
+      const base = (4.6 + (p.r.drive + p.r.def) * 0.012 + (p.side === 1 ? this.f * 0.25 : 0)) * (p.side === 1 ? 1 - CPU_NERF * 0.6 : 1);
       let sp = base * (p.sprint ? 1.3 : 1) * (this.ball.holder === p ? 0.92 : 1) * (p.slow > 0 ? 0.5 : 1);
       // アイテム：速さ（%）、横浜グリーンソックスは守るときにさらに速い
       sp *= 1 + this.ifx(p).speed * 0.012;
@@ -3086,10 +3087,19 @@ class Match {
       else if (p.y > 0 || p.vy > 0) { p.vy -= 11 * dt; p.y = Math.max(0, p.y + p.vy * dt); if (p.y === 0) p.vy = 0; }
       // 向き
       const spd = Math.hypot(p.vel.x, p.vel.z);
-      // 急に向きを変えるとバッシュがキュッ
-      if (SFX && spd > 3 && p.lastVel && (p.vel.x * p.lastVel.x + p.vel.z * p.lastVel.z) < spd * spd * 0.2 && this.time - (p.squeakT || 0) > 0.6) {
-        p.squeakT = this.time;
-        if (rand() < 0.6) SFX.squeak();
+      // バッシュのキュッ：急に向きを変えた・急に止まった・急に走りだしたとき（床にいるときだけ）
+      if (SFX && p.y === 0 && p.lastVel && this.time - (p.squeakT || 0) > 0.45) {
+        const lsp = Math.hypot(p.lastVel.x, p.lastVel.z);
+        const dot = (p.vel.x * p.lastVel.x + p.vel.z * p.lastVel.z) / ((spd * lsp) || 1);
+        const turn = spd > 2.2 && lsp > 2.2 && dot < 0.55; // 約55度より大きく曲がった
+        const stop = lsp > 4 && spd < 1.2;
+        const go = lsp < 0.8 && spd > 3.5;
+        // 同時にたくさん鳴りすぎないよう、コート全体で 0.12 秒あける
+        if ((turn || stop || go) && this.time - (this.squeakAll || 0) > 0.12 && rand() < 0.85) {
+          p.squeakT = this.squeakAll = this.time;
+          // カメラから遠い選手の音は小さく。切り返し（逆向き）は「キュッキュッ」
+          SFX.squeak(clamp(1 - Math.abs(p.pos.x - this.camX) / 18, 0.35, 1), turn && dot < 0 ? 2 : 1);
+        }
       }
       if (this.time - (p.velT || 0) > 0.15) { p.lastVel = { x: p.vel.x, z: p.vel.z }; p.velT = this.time; }
       if (this.state === 'ft') { /* ならんだときの向きのまま */ }
