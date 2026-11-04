@@ -1,0 +1,773 @@
+// Bリーグ ストーム 本体（画面の切りかえ・チーム編成・育成・スカウト・試合）
+(() => {
+  const S = Store;
+  const $app = document.getElementById('app');
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const SCOUT_COST = 300;
+  const SLOTS = ['PG', 'SG', 'SF', 'PF', 'C'];
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // チームごとの色（ロゴの代わりにも使う）
+  function hue(code) { let h = 0; for (const c of code) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+  const teamStyle = t => `--tc:${t.color || `hsl(${hue(t.code)} 65% 48%)`}`;
+
+  function photo(p, cls = '') {
+    return `<div class="ph ${cls}" style="${teamStyle(S.teamById[p.team])}">
+      <span class="ph-no">${esc(p.no)}</span>
+      ${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+    </div>`;
+  }
+
+  const logo = t => `<img class="logo" src="${esc(t.logo)}" alt="" onerror="this.style.visibility='hidden'">`;
+  const myTeam = () => S.teamById[S.data.fav];
+  const myName = () => (S.data.gm ? `${S.data.gm}の` : '') + myTeam().short;
+
+  function ovrClass(o) { return o >= 85 ? 'gold' : o >= 75 ? 'silver' : o >= 65 ? 'bronze' : ''; }
+
+  // ポジションの合う順に5人をならべる（コートの立ち位置とマッチアップに使う）
+  function arrange(ids) {
+    const rest = [...ids];
+    const out = [];
+    SLOTS.forEach(slot => {
+      let best = -1;
+      let bestScore = -1;
+      rest.forEach((id, i) => {
+        const p = S.playerById[id];
+        const fit = p.pos.split('/').includes(slot) ? 2 : (p.pos.includes(slot[1] || slot) ? 1 : 0);
+        const sc = fit * 100 + S.rating(id).ovr;
+        if (sc > bestScore) { bestScore = sc; best = i; }
+      });
+      out.push(rest.splice(best, 1)[0]);
+    });
+    return out;
+  }
+
+  function sideOf(ids, team, mine, keepOrder = false) {
+    return {
+      team, mine,
+      tactic: 'man',
+      players: (keepOrder ? ids : arrange(ids)).map(id => {
+        const p = S.playerById[id];
+        return { pid: id, name: p.name, no: p.no, photo: p.photo, pos: p.pos, ht: p.ht, wt: p.wt, r: mine ? S.rating(id) : p.r, fx: mine ? S.itemFx(id) : null };
+      }),
+    };
+  }
+
+  function cpuSide(team) {
+    const ids = team.players.slice(0, 8).map(p => p.id); // OVR 順に上位から
+    return sideOf(arrange(ids), team, false);
+  }
+
+
+  // ---------- シーズン ----------
+  function newSeason() {
+    const others = S.teams.filter(t => t.id !== S.data.fav).map(t => t.id);
+    const table = {};
+    S.teams.forEach(t => { table[t.id] = { w: 0, l: 0, pf: 0, pa: 0 }; });
+    S.data.season = { schedule: shuffle(others), game: 0, table };
+  }
+
+  function record(a, b, sa, sb) {
+    const T = S.data.season.table;
+    T[a].pf += sa; T[a].pa += sb; T[b].pf += sb; T[b].pa += sa;
+    if (sa > sb) { T[a].w++; T[b].l++; } else { T[b].w++; T[a].l++; }
+  }
+
+  // 自分の試合のあいだに、ほかのチームどうしも1試合ずつ行う
+  function simRound(oppId) {
+    const ids = shuffle(S.teams.map(t => t.id).filter(id => id !== S.data.fav && id !== oppId));
+    for (let i = 0; i + 1 < ids.length; i += 2) {
+      const st = Game.create(cpuSide(S.teamById[ids[i]]), cpuSide(S.teamById[ids[i + 1]]), 10);
+      Game.simulate(st, [0, 0]);
+      record(ids[i], ids[i + 1], st.score[0], st.score[1]);
+    }
+  }
+
+  function standings() {
+    const T = S.data.season.table;
+    return S.teams.map(t => ({ t, ...T[t.id] }))
+      .sort((a, b) => (b.w - b.l) - (a.w - a.l) || (b.pf - b.pa) - (a.pf - a.pa));
+  }
+
+
+  // ---------- アイテム・ガチャ ----------
+  const IT = window.BP_ITEMS;
+  const RAR_ORDER = { UR: 0, SSR: 1, SR: 2, R: 3, N: 4 };
+
+  // 効果の文（強化 +1 ごとに、いちばん上の効果が +1）
+  function itemEffect(it, plus = 0) {
+    const pct = k => (k === 'speed' || k === 'gauge' ? '%' : '');
+    const s = Object.entries(it.e).map(([k, v], i) => `${IT.KEY_NAME[k]} +${v + (i === 0 ? plus : 0)}${pct(k)}`).join('・');
+    return s;
+  }
+
+  function itemCard(id, opt = {}) {
+    const it = IT.byId[id];
+    const plus = opt.plus !== undefined ? opt.plus : S.data.items.inv[id] || 0; // ガチャの結果は、引いたときの強化
+    const owner = opt.owner === undefined ? S.ownerOf(id) : opt.owner;
+    const ty = IT.typeById[it.type];
+    return `<div class="icard r-${it.rarity}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
+      <div class="ic-top"><span class="ic-ico">${ty.icon}</span><span class="ic-rar">${it.rarity}</span></div>
+      <b class="ic-name">${esc(it.name)}${plus ? ` <em>+${plus}</em>` : ''}</b>
+      <small class="ic-type">${esc(ty.name)}</small>
+      <small class="ic-eff">${esc(itemEffect(it, plus))}</small>
+      ${it.sp ? `<small class="ic-sp">★ ${esc(IT.SP[it.sp])}</small>` : ''}
+      ${owner ? `<small class="ic-own">👤 ${esc(S.playerById[owner].name)}</small>` : ''}
+      ${opt.extra || ''}
+    </div>`;
+  }
+
+  function renderGacha() {
+    const free = S.freeLeft();
+    const it = S.data.items;
+    const C = S.ITEM;
+    const owned = Object.keys(it.inv).length;
+    $app.innerHTML = `
+      ${header('ガチャ')}
+      <section class="gacha-hero">
+        <div class="gh-title">🎁 アイテムガチャ</div>
+        <p>シューズ・ヘッドバンドなど100種類。選手につけると能力が上がります（1人5つまで、同じ種類は1つ）。</p>
+        <div class="gh-info"><span>今日の無料 <b>${free}</b> / ${C.FREE_PER_DAY}</span><span>SSR以上まで あと <b>${Math.max(1, C.PITY - it.pity)}</b> 回</span><span>持っているアイテム <b>${owned}</b> / ${IT.items.length}</span></div>
+      </section>
+      <div class="gacha-btns">
+        <button class="gbtn free" data-pull="free" ${free ? '' : 'disabled'}><b>無料で1回</b><small>${free ? `のこり ${free} 回` : 'また明日'}</small></button>
+        <button class="gbtn" data-pull="coin1" ${S.data.coins >= C.COIN_1 ? '' : 'disabled'}><b>1回</b><small>🪙 ${C.COIN_1}</small></button>
+        <button class="gbtn ten" data-pull="coin10" ${S.data.coins >= C.COIN_10 ? '' : 'disabled'}><b>10回</b><small>🪙 ${C.COIN_10}・SR以上 1つかくてい</small></button>
+      </div>
+      <div id="gres" class="gres"></div>
+      <div class="gacha-foot">
+        <button class="btn" data-go="items">🎒 持ち物を見る</button>
+        <details class="rates"><summary>出る確率</summary>
+          <p>N 50% ／ R 30% ／ SR 15% ／ SSR 4.5% ／ UR 0.5%</p>
+          <p>${C.PITY}回つづけてSSR以上が出なかったら、次はかならずSSR以上。</p>
+          <p>同じアイテムがまた出たら +1 強化（+${C.PLUS_MAX}まで）。そのあとはコイン（N 20・R 40・SR 80・SSR 200・UR 500）。</p>
+        </details>
+      </div>`;
+    bind();
+    $app.querySelectorAll('[data-pull]').forEach(b => b.onclick = () => {
+      const r = S.pull(b.dataset.pull);
+      if (r.error) return toast(r.error);
+      Sound.unlock();
+      renderGacha();
+      showPull(r.results);
+    });
+  }
+
+  // 引いた結果：カードが1まいずつめくれる。いちばんよいレア度で光る
+  function showPull(results) {
+    const box = document.getElementById('gres');
+    const best = results.reduce((a, x) => (RAR_ORDER[x.rarity] < RAR_ORDER[a] ? x.rarity : a), 'N');
+    box.className = 'gres show best-' + best;
+    box.innerHTML = `<div class="gres-title">${best === 'UR' ? '🌈 UR！！' : best === 'SSR' ? '✨ SSR！' : '結果'}</div>
+      <div class="gres-cards ${results.length > 1 ? 'ten' : 'one'}">${results.map((x, i) => `
+        <div class="flip" style="--d:${i * 0.12 + 0.2}s">
+          <div class="back r-${x.rarity}"><span>?</span></div>
+          ${itemCard(x.id, { cls: 'front', owner: null, plus: x.coins ? S.ITEM.PLUS_MAX : x.plus, extra: x.isNew ? '<span class="tag-new">NEW</span>' : x.plus ? `<span class="tag-up">強化 +${x.plus}</span>` : `<span class="tag-coin">🪙 +${x.coins}</span>` })}
+        </div>`).join('')}</div>`;
+    if (window.Sound && (best === 'SSR' || best === 'UR')) setTimeout(() => Sound.cheer && Sound.cheer(best === 'UR' ? 1 : 0.7), 600);
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  let itemTab = 'all';
+  function renderItems() {
+    const inv = S.data.items.inv;
+    const ids = Object.keys(inv).filter(id => IT.byId[id] && (itemTab === 'all' || IT.byId[id].type === itemTab))
+      .sort((a, b) => RAR_ORDER[IT.byId[a].rarity] - RAR_ORDER[IT.byId[b].rarity] || a.localeCompare(b));
+    $app.innerHTML = `
+      ${header('持ち物（アイテム）')}
+      <p class="hint">選手の画面（チーム・育成 → 選手をタップ）でつけられます。持っているのは ${Object.keys(inv).length} / ${IT.items.length} 種類。</p>
+      <div class="chips itabs">
+        <button class="chip ${itemTab === 'all' ? 'on' : ''}" data-tab="all">すべて</button>
+        ${IT.TYPES.map(t => `<button class="chip ${itemTab === t.id ? 'on' : ''}" data-tab="${t.id}">${t.icon} ${t.name}</button>`).join('')}
+      </div>
+      ${ids.length ? `<div class="igrid">${ids.map(id => itemCard(id)).join('')}</div>`
+        : `<div class="panel center"><p>まだアイテムがありません。</p><button class="btn primary" data-go="gacha">🎁 ガチャを引く</button></div>`}`;
+    bind();
+    $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { itemTab = b.dataset.tab; renderItems(); });
+  }
+
+  // 選手につけるアイテムをえらぶ（同じ種類をつけていたら入れかえ）
+  function openItemPicker(pid) {
+    const dlg = document.getElementById('dlg');
+    const p = S.playerById[pid];
+    const mine = S.equipOf(pid);
+    const mineTypes = Object.fromEntries(mine.map(id => [IT.byId[id].type, id]));
+    const ids = Object.keys(S.data.items.inv).filter(id => IT.byId[id] && !mine.includes(id))
+      .sort((a, b) => RAR_ORDER[IT.byId[a].rarity] - RAR_ORDER[IT.byId[b].rarity] || IT.byId[a].type.localeCompare(IT.byId[b].type));
+    dlg.innerHTML = `
+      <div class="sheet">
+        <button class="close" aria-label="もどる">‹</button>
+        <h2 class="picker-title">${esc(p.name)} につける（${mine.length}/5）</h2>
+        <p class="hint">同じ種類をつけているときは入れかえます。ほかの選手がつけているアイテムは、この選手に移ります。</p>
+        ${ids.length ? `<div class="igrid">${ids.map(id => {
+          const swap = mineTypes[IT.byId[id].type];
+          return itemCard(id, { attr: `data-pick="${id}" role="button" tabindex="0"`, cls: 'pickable',
+            extra: swap ? `<span class="tag-swap">「${esc(IT.byId[swap].name)}」と入れかえ</span>` : '' });
+        }).join('')}</div>` : '<div class="panel center"><p>つけられるアイテムがありません。</p></div>'}
+      </div>`;
+    dlg.classList.add('open');
+    dlg.querySelector('.close').onclick = () => openPlayer(pid);
+    dlg.onclick = e => { if (e.target === dlg) openPlayer(pid); };
+    dlg.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+      const err = S.equip(pid, b.dataset.pick);
+      if (err) return toast(err);
+      toast(`${IT.byId[b.dataset.pick].name} をつけました`);
+      openPlayer(pid);
+    });
+  }
+
+  // ---------- 画面 ----------
+  let view = 'home';
+  let viewArg = null;
+  function go(v, arg) { view = v; viewArg = arg; render(); window.scrollTo(0, 0); }
+
+  function render() {
+    if (!S.data.fav) return renderWelcome();
+    ({ home: renderHome, team: renderTeam, scout: renderScout, table: renderTable,
+      pre: renderPre, match: renderMatch, settings: renderSettings, free: renderFree, help: renderHelp,
+      gacha: renderGacha, items: renderItems }[view] || renderHome)();
+  }
+
+  function header(title, back = true) {
+    return `<header class="bar">
+      ${back ? '<button class="back" data-go="home" aria-label="もどる">‹</button>' : '<span></span>'}
+      <h1>${title}</h1>
+      <span class="coins">🪙 ${S.data.coins}</span>
+    </header>`;
+  }
+
+  // 最初の画面：推しチームをえらぶ
+  function renderWelcome() {
+    const groups = [['B.ONE（推し）', S.teams.filter(t => t.league === 'B.ONE')],
+      ['B.PREMIER', S.teams.filter(t => t.league === 'B.PREMIER')]];
+    $app.innerHTML = `
+      <section class="welcome">
+        <div class="title-logo"><span>Bリーグ</span><b>STORM</b></div>
+        <p class="lead">${esc(window.BP_DATA.season)} シーズンの選手で、自分だけのチームをそだてよう。</p>
+        <label class="field">GMの名前（なくてもOK）<input id="gm" maxlength="12" placeholder="例：あきら"></label>
+        ${groups.map(([g, ts]) => `<h2 class="sec">${g}</h2>
+          <div class="team-grid">${ts.map(t => `
+            <button class="team-pick" data-team="${t.id}" style="${teamStyle(t)}">
+              ${logo(t)}<span>${esc(t.short)}</span>
+            </button>`).join('')}</div>`).join('')}
+        <p class="note">データ：B.LEAGUE公式サイト（${esc(window.BP_DATA.updated)} 取得）。個人・家族で楽しむためのファンアプリです。</p>
+      </section>`;
+    $app.querySelectorAll('[data-team]').forEach(b => b.onclick = () => {
+      const t = S.teamById[b.dataset.team];
+      S.data.gm = document.getElementById('gm').value.trim();
+      S.data.fav = t.id;
+      t.players.forEach(p => S.own(p.id));
+      S.lineup();
+      newSeason();
+      S.save();
+      toast(`${t.short} のGMに就任！`);
+      go('home');
+    });
+  }
+
+  function renderHome() {
+    const t = myTeam();
+    const sea = S.data.season;
+    const rec = sea.table[t.id];
+    const next = S.teamById[sea.schedule[sea.game]];
+    const susp = S.data.suspended;
+    const rank = standings().findIndex(x => x.t.id === t.id) + 1;
+    const ids = S.lineup();
+    const ovr = Math.round(ids.reduce((a, id) => a + S.rating(id).ovr, 0) / 5);
+    $app.innerHTML = `
+      ${header('Bリーグ ストーム', false)}
+      <section class="hero" style="${teamStyle(t)}">
+        ${logo(t)}
+        <div>
+          <div class="hero-name">${esc(myName())}</div>
+          <div class="hero-rec"><b>${rec.w}</b>勝 <b>${rec.l}</b>敗 ・ ${rank}位 ・ チーム力 <b>${ovr}</b></div>
+        </div>
+      </section>
+      <div class="starters">${ids.map(id => `<button class="mini" data-player="${id}">${photo(S.playerById[id])}<span>${S.rating(id).ovr}</span></button>`).join('')}</div>
+      ${susp ? `
+      <div class="panel resume">
+        <div><small>⏸ 中断した試合${susp.free ? '（フリー対戦）' : ''}</small>
+          <b>VS ${esc(S.teamById[susp.opp].short)}　${susp.score[0]} - ${susp.score[1]}</b>
+          <small>${susp.q > 4 ? 'OT' : susp.q + 'Q'} 残り ${Math.floor(susp.clock / 60)}:${String(Math.floor(susp.clock % 60)).padStart(2, '0')}</small></div>
+        <button class="btn primary" id="resume">再開する</button>
+        <button class="btn" id="discard">やめる</button>
+      </div>` : next ? `
+      <button class="big-btn" data-go="pre" data-arg="${next.id}">
+        <small>シーズン 第${sea.game + 1}戦 / ${sea.schedule.length}</small>
+        <span>VS ${esc(next.short)}</span>
+      </button>` : `
+      <div class="panel center"><h2>シーズン終了！</h2><p>${rec.w}勝${rec.l}敗・${rank}位</p>
+        <button class="btn" id="newSeason">次のシーズンへ</button></div>`}
+      <div class="menu">
+        <button data-go="team"><b>🏀</b>チーム・育成</button>
+        <button data-go="scout"><b>🎴</b>スカウト</button>
+        <button data-go="gacha" class="m-gacha"><b>🎁</b>ガチャ${S.freeLeft() ? `<em class="badge">${S.freeLeft()}</em>` : ''}</button>
+        <button data-go="items"><b>🎒</b>アイテム</button>
+        <button data-go="free"><b>⚔️</b>フリー対戦</button>
+        <button data-go="table"><b>📊</b>順位表</button>
+        <button data-go="help"><b>📖</b>あそびかた</button>
+        <button data-go="settings"><b>⚙️</b>せってい</button>
+      </div>`;
+    bind();
+    const rs = document.getElementById('resume');
+    if (rs) rs.onclick = () => { Sound.unlock(); resumeMatch(); };
+    const ds = document.getElementById('discard');
+    if (ds) ds.onclick = () => {
+      if (!confirm('中断した試合を消しますか？（記録されません）')) return;
+      delete S.data.suspended;
+      S.save();
+      render();
+    };
+    const ns = document.getElementById('newSeason');
+    if (ns) ns.onclick = () => { newSeason(); S.save(); render(); };
+  }
+
+  // チーム：スタメンと選手一覧
+  function renderTeam() {
+    const ids = S.ownedIds();
+    const lineup = S.lineup();
+    $app.innerHTML = `
+      ${header('チーム・育成')}
+      <p class="hint">選手をタップすると、育成やスタメンの入れかえができます。</p>
+      <h2 class="sec">スタメン</h2>
+      <div class="cards">${lineup.map(card).join('')}</div>
+      <h2 class="sec">ベンチ（${ids.length - lineup.length}人）</h2>
+      <div class="cards">${ids.filter(id => !lineup.includes(id)).map(card).join('')}</div>`;
+    bind();
+  }
+
+  function card(id) {
+    const p = S.playerById[id];
+    const r = S.rating(id);
+    const o = S.data.owned[id];
+    const t = S.teamById[p.team];
+    return `<button class="pcard ${ovrClass(r.ovr)}" data-player="${id}">
+      ${photo(p)}
+      <div class="pcard-ovr">${r.ovr}</div>
+      <div class="pcard-body">
+        <b>${esc(p.name)}</b>
+        <small>${esc(t.short)} #${esc(p.no)} ${esc(p.pos)}</small>
+        <small>Lv${o ? o.lv : 1}${o && o.tp ? ` <em>育成pt ${o.tp}</em>` : ''}</small>
+      </div>
+    </button>`;
+  }
+
+  // 選手の詳細（育成）
+  function openPlayer(id) {
+    const p = S.playerById[id];
+    const t = S.teamById[p.team];
+    const o = S.data.owned[id];
+    const r = S.rating(id);
+    const st = p.st;
+    const itb = o ? S.itemTotal(id) : {}; // アイテムで上がった分
+    const lineup = S.lineup();
+    const isStarter = lineup.includes(id);
+    const dlg = document.getElementById('dlg');
+    dlg.innerHTML = `
+      <div class="sheet" style="${teamStyle(t)}">
+        <button class="close" aria-label="とじる">×</button>
+        <div class="sheet-top">
+          ${photo(p, 'lg')}
+          <div>
+            <div class="sheet-team">${logo(t)}${esc(t.short)} #${esc(p.no)} ${esc(p.pos)}${p.ht ? ` ・ ${p.ht}cm / ${p.wt}kg` : ''}</div>
+            <h2>${esc(p.name)}</h2>
+            <div class="sheet-ovr ${ovrClass(r.ovr)}">OVR <b>${r.ovr}</b></div>
+          </div>
+        </div>
+        ${st ? `<div class="realstats">
+          <span><b>${st.g}</b>試合</span><span><b>${st.ppg}</b>得点</span><span><b>${st.rpg}</b>RB</span>
+          <span><b>${st.apg}</b>AST</span><span><b>${st.p3p}%</b>3P</span><span><b>${st.eff}</b>EFF</span>
+        </div>` : p.note ? `<p class="hint">${esc(p.note)}</p>` : '<p class="hint">今シーズンの出場記録がまだないので、ポジションからの推定値です。</p>'}
+        ${o ? `<div class="lv"><span>Lv <b>${o.lv}</b></span>
+          <div class="xpbar"><i style="width:${Math.round(o.xp / S.xpNeed(o.lv) * 100)}%"></i></div>
+          <span>育成pt <b>${o.tp}</b></span></div>` : ''}
+        <div class="attrs">${S.ATTRS.map(k => `
+          <div class="attr">
+            <span>${S.ATTR_NAME[k]}</span>
+            <div class="abar"><i style="width:${r[k]}%"></i></div>
+            <b>${r[k]}</b>
+            ${o ? `<button class="plus" data-attr="${k}" ${o.tp > 0 && r[k] < 99 ? '' : 'disabled'}>＋</button>` : ''}
+            <small>${o && o.plus[k] ? `+${o.plus[k]}` : ''}${itb[k] || itb.all ? `<em class="itb">🎒+${(itb[k] || 0) + (itb.all || 0)}</em>` : ''}</small>
+          </div>`).join('')}
+        </div>
+        ${o ? `<div class="eqsec">
+          <h3>アイテム <small>${S.equipOf(id).length} / 5</small></h3>
+          <div class="eqlist">${S.equipOf(id).map(iid => itemCard(iid, { owner: null, cls: 'mini', extra: `<button class="eq-x" data-unequip="${iid}" aria-label="外す">×</button>` })).join('')}
+            ${S.equipOf(id).length < 5 ? '<button class="eq-add" id="eqAdd">＋<small>つける</small></button>' : ''}</div>
+        </div>` : ''}
+        ${o ? `<button class="btn wide" id="toggleStarter">${isStarter ? 'ベンチにさげる' : 'スタメンに入れる'}</button>` : ''}
+      </div>`;
+    dlg.classList.add('open');
+    dlg.querySelector('.close').onclick = closeDlg;
+    dlg.onclick = e => { if (e.target === dlg) closeDlg(); };
+    dlg.querySelectorAll('[data-attr]').forEach(b => b.onclick = () => {
+      if (S.train(id, b.dataset.attr)) openPlayer(id);
+    });
+    dlg.querySelectorAll('[data-unequip]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      S.unequip(id, b.dataset.unequip);
+      openPlayer(id);
+    });
+    const ea = document.getElementById('eqAdd');
+    if (ea) ea.onclick = () => openItemPicker(id);
+    const tg = document.getElementById('toggleStarter');
+    if (tg) tg.onclick = () => {
+      let ids = S.data.lineup;
+      if (isStarter) {
+        // 同じポジションでいちばんOVRが高いベンチ選手と入れかえ
+        const bench = S.ownedIds().filter(x => !ids.includes(x));
+        if (!bench.length) return toast('ベンチに選手がいません');
+        const sub = bench.find(x => S.playerById[x].mainPos === p.mainPos) || bench[0];
+        S.data.lineup = ids.map(x => (x === id ? sub : x));
+        toast(`${S.playerById[sub].name} がスタメンに入りました`);
+      } else {
+        // いちばんOVRが低いスタメンと入れかえ（同じポジションがいればそちら）
+        const same = ids.find(x => S.playerById[x].mainPos === p.mainPos);
+        const out = same || ids.slice().sort((a, b) => S.rating(a).ovr - S.rating(b).ovr)[0];
+        S.data.lineup = ids.map(x => (x === out ? id : x));
+        toast(`${S.playerById[out].name} と入れかえました`);
+      }
+      S.save();
+      closeDlg();
+      render();
+    };
+  }
+  function closeDlg() { const d = document.getElementById('dlg'); d.classList.remove('open'); d.innerHTML = ''; render(); }
+
+  // スカウト：ほかのチームの選手を1人ゲット
+  function renderScout() {
+    const all = S.teams.flatMap(t => t.players).filter(p => !S.data.owned[p.id]);
+    $app.innerHTML = `
+      ${header('スカウト')}
+      <div class="panel center">
+        <p>🪙 ${SCOUT_COST} で、B.PREMIER と B.ONE（横浜EX）の選手から1人がチームに加わります。<br>
+        OVRの高い選手ほど出にくくなっています。</p>
+        <button class="btn big" id="draw" ${S.data.coins < SCOUT_COST || !all.length ? 'disabled' : ''}>スカウトする</button>
+        <p class="hint">コインは試合でもらえます（勝利 150 / 敗戦 60）</p>
+      </div>
+      <div id="reveal"></div>`;
+    bind();
+    document.getElementById('draw').onclick = () => {
+      const i = (() => {
+        const ws = all.map(p => Math.pow(Math.max(100 - p.r.ovr, 5), 2.4));
+        let x = Math.random() * ws.reduce((a, b) => a + b, 0);
+        for (let k = 0; k < ws.length; k++) { x -= ws[k]; if (x <= 0) return k; }
+        return ws.length - 1;
+      })();
+      const p = all[i];
+      S.data.coins -= SCOUT_COST;
+      S.own(p.id);
+      S.save();
+      renderScout();
+      const el = document.getElementById('reveal');
+      el.innerHTML = `<div class="reveal ${ovrClass(p.r.ovr)}">${card(p.id)}</div>`;
+      bind();
+    };
+  }
+
+  function renderTable() {
+    const rows = standings();
+    $app.innerHTML = `
+      ${header('順位表')}
+      <table class="table">
+        <thead><tr><th>#</th><th>チーム</th><th>勝</th><th>敗</th><th>得失</th></tr></thead>
+        <tbody>${rows.map((x, i) => `<tr class="${x.t.id === S.data.fav ? 'me' : ''}">
+          <td>${i + 1}</td><td class="tname">${logo(x.t)}${esc(x.t.id === S.data.fav ? myName() : x.t.short)}</td>
+          <td>${x.w}</td><td>${x.l}</td><td>${x.pf - x.pa > 0 ? '+' : ''}${x.pf - x.pa}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+    bind();
+  }
+
+  function renderFree() {
+    $app.innerHTML = `
+      ${header('フリー対戦')}
+      <p class="hint">好きなチームと対戦できます（順位表には入りません）。</p>
+      <div class="team-grid">${S.teams.filter(t => t.id !== S.data.fav).map(t => `
+        <button class="team-pick" data-go="pre" data-arg="free:${t.id}" style="${teamStyle(t)}">
+          ${logo(t)}<span>${esc(t.short)}</span><small>${Math.round(t.players.slice(0, 5).reduce((a, p) => a + p.r.ovr, 0) / 5)}</small>
+        </button>`).join('')}</div>`;
+    bind();
+  }
+
+  const lvName = v => ['', 'とてもよわい', 'よわい', 'すこしよわい', 'ふつう', 'ふつう', 'すこしつよい', 'つよい', 'とてもつよい', 'すごくつよい', 'さいきょう'][v];
+
+  function renderSettings() {
+    const d = S.data;
+    const opt = (key, vals) => vals.map(([v, l]) => `<button class="chip ${d[key] === v ? 'on' : ''}" data-set="${key}" data-val="${v}">${l}</button>`).join('');
+    $app.innerHTML = `
+      ${header('せってい')}
+      <div class="panel">
+        <h3>CPUの強さ <b id="lvName">${lvName(d.cpuLv)}</b></h3>
+        <div class="lv-row">
+          <button class="chip" data-lv="-1">−</button>
+          <input type="range" id="cpuLv" min="1" max="10" step="1" value="${d.cpuLv}">
+          <button class="chip" data-lv="1">＋</button>
+          <b class="lv-num" id="lvNum">${d.cpuLv}</b>
+        </div>
+        <p class="hint">よわくすると、CPUの能力・スティール・シュートが下がり、自分のシュートゲージの緑が広くなります。</p>
+        <h3>1クォーターの長さ</h3><div class="chips">${opt('quarterMin', [[2, '2分'], [3, '3分'], [5, '5分']])}</div>
+        <h3>効果音・観客の声</h3><div class="chips">${opt('sound', [[1, 'あり'], [0, 'なし']])}</div>
+        <h3>BGM</h3><div class="chips">${opt('bgm', [[1, 'あり'], [0, 'なし']])}</div>
+      </div>
+      <div class="panel">
+        <h3>オフライン</h3>
+        <div id="offState">${offlineHtml()}</div>
+      </div>
+      <div class="panel">
+        <h3>推しチームをえらびなおす</h3>
+        <p class="hint">記録・育成・コインがすべて消えます。</p>
+        <button class="btn danger" id="reset">最初からやりなおす</button>
+      </div>
+      <p class="note">選手データ：B.LEAGUE公式サイト ${esc(window.BP_DATA.season)}（${esc(window.BP_DATA.updated)} 取得）<br>
+      能力値はスタッツから自動で計算した、このアプリ独自のものです。</p>`;
+    bind();
+    $app.querySelectorAll('[data-set]').forEach(b => b.onclick = () => {
+      d[b.dataset.set] = Number(b.dataset.val);
+      if (b.dataset.set === 'sound') Sound.setOn(!!d.sound);
+      if (b.dataset.set === 'bgm') Sound.setBgmOn(!!d.bgm);
+      S.save();
+      render();
+    });
+    const setLv = v => {
+      d.cpuLv = Math.max(1, Math.min(10, v));
+      S.save();
+      document.getElementById('cpuLv').value = d.cpuLv;
+      document.getElementById('lvNum').textContent = d.cpuLv;
+      document.getElementById('lvName').textContent = lvName(d.cpuLv);
+    };
+    document.getElementById('cpuLv').oninput = e => setLv(Number(e.target.value));
+    $app.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => setLv(d.cpuLv + Number(b.dataset.lv)));
+    document.getElementById('reset').onclick = () => {
+      if (confirm('本当に最初からやりなおしますか？')) { S.reset(); go('home'); }
+    };
+  }
+
+  // ---------- オフライン（写真・顔・ロゴをスマホに保存） ----------
+  const offline = { done: 0, total: 0, failed: 0, on: false };
+
+  function offlineHtml() {
+    if (!offline.on) return `<p class="hint">ネット上（https）で開くと、選手の写真などをスマホに保存して、オフラインでも遊べるようになります。</p>`;
+    const { done, total, failed } = offline;
+    if (total && done >= total) return `<p class="ok">✅ オフラインでも遊べます（画像 ${total} 枚を保存ずみ）</p>`;
+    const pct = total ? Math.floor(done / total * 100) : 0;
+    return `<div class="bar"><i style="width:${pct}%"></i></div>
+      <p class="hint">${total ? `保存中… ${done} / ${total} 枚（${pct}%）` : '準備中…'}${failed ? `<br>${failed} 枚が取れませんでした。ネットにつないで開き直すと、つづきを取ります。` : ''}</p>`;
+  }
+
+  function startOffline() {
+    const sw = navigator.serviceWorker;
+    offline.on = true;
+    sw.addEventListener('message', e => {
+      const m = e.data || {};
+      if (m.type !== 'offline' || m.error) return;
+      Object.assign(offline, m);
+      const box = document.getElementById('offState');
+      if (box) box.innerHTML = offlineHtml();
+      if (m.total && m.done >= m.total && !S.data.offlineReady) {
+        S.data.offlineReady = 1;
+        S.save();
+        toast('オフラインでも遊べるようになりました');
+      }
+    });
+    // スマホの空きが少ないときに消されないようにたのむ
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    sw.register('sw.js').then(() => sw.ready).then(reg => reg.active && reg.active.postMessage('prefetch'));
+  }
+
+  // ---------- あそびかた（操作説明） ----------
+  const HELP = `
+    <div class="help">
+      <section><h3>🕹 動く</h3>
+        <p>画面の左下を指でなぞると<b>十字キー</b>が出ます。たおした方向に、黄色い輪の選手が動きます。</p>
+        <p>操作する選手は自動で切りかわります（ボールを持った選手／相手のボールを持った選手をマークする選手）。</p></section>
+      <section><h3>🏀 こうげき（ボールを持っているとき）</h3>
+        <ul>
+          <li><b>パス</b>：十字キーの向きにいる味方へパス。十字キーをたおしていないときは、いちばん空いている味方へ。<b>コートの味方をタップ</b>しても、その選手にパスできます。</li>
+          <li><b>シュート</b>：長押しするとゲージがたまります。<b>いちばん上</b>で離すと「パーフェクト」で入りやすい（ゲージが緑に光る）。上をこえて押しつづけると赤くなって入りにくい。</li>
+          <li><b>ドライブ</b>：長押しでダッシュ。相手の近くで使うと、抜けることがあります。</li>
+          <li>ゴールの近くでシュート → <b>レイアップ</b>。勢いよく走りこんでシュート → <b>ダンク</b>（大きい選手・ドライブが得意な選手）。</li>
+        </ul></section>
+      <section><h3>🛡 まもり（相手がボールを持っているとき）</h3>
+        <ul>
+          <li><b>ディフェンス</b>：長押ししているあいだ、自動でマークする相手についていきます。十字キーで少しずらせます。</li>
+          <li><b>スティール</b>：ボールを持った相手の近くで押すとボールをうばえることがあります。やりすぎるとファウル。</li>
+          <li>守りのときに味方をタップすると、その選手を操作できます。</li>
+          <li><b>ブロック</b>：ジャンプ。相手がシュートするときに近くでとぶと止められることがあります。ルーズボールのときはリバウンドのジャンプ。</li>
+        </ul></section>
+      <section><h3>🎯 フリースロー・スローイン</h3>
+        <ul>
+          <li>シュート中にファウルされると<b>フリースロー</b>。シュートボタンを長押しして、ゲージのいちばん上で離します。</li>
+          <li>それ以外のファウル・アウト・24秒は<b>スローイン</b>。自分のチームのときは「スローイン」ボタンでパスを入れます。</li>
+          <li>チームファウル（得点ボードの F の数字）が5つ目からは、シュート中でなくても<b>フリースロー1本</b>。F4 から赤くなります。</li>
+        </ul></section>
+      <section><h3>⏸ 中断と再開</h3>
+        <p>試合中に左上の「Ⅱ」→「中断して、あとで再開」で、試合をとちゅうで止められます。アプリを閉じてしまっても、ホームの「再開する」でつづきから遊べます。</p></section>
+      <section><h3>⌨️ パソコンのキー</h3>
+        <p>移動：WASD／矢印キー、J：パス・スティール・スローイン、K（スペース）：シュート・ブロック、L：ドライブ・ディフェンス</p></section>
+      <section><h3>📈 そだてる</h3>
+        <p>試合でXPがたまってレベルアップすると育成ptがもらえます。「チーム・育成」で選手をタップして能力を上げよう。コインがたまったら「スカウト」で新しい選手をさがせます。CPUが強いときは「せってい」で強さを下げてください。</p></section>
+    </div>`;
+
+  function renderHelp() {
+    $app.innerHTML = `${header('あそびかた')}${HELP}`;
+    bind();
+  }
+
+  // ---------- 試合 ----------
+  let match = null;
+
+  function renderPre() {
+    const free = String(viewArg).startsWith('free:');
+    const opp = S.teamById[String(viewArg).replace('free:', '')];
+    const me = sideOf(S.lineup(), myTeam(), true);
+    const cpu = cpuSide(opp);
+    const avgOvr = s => Math.round(s.players.reduce((a, p) => a + p.r.ovr, 0) / 5);
+    $app.innerHTML = `
+      ${header(free ? 'フリー対戦' : 'シーズン')}
+      <div class="vs">
+        <div class="vs-team" style="${teamStyle(myTeam())}">${logo(myTeam())}<b>${esc(myName())}</b><span>${avgOvr(me)}</span></div>
+        <div class="vs-x">VS</div>
+        <div class="vs-team" style="${teamStyle(opp)}">${logo(opp)}<b>${esc(opp.short)}</b><span>${avgOvr(cpu)}</span></div>
+      </div>
+      <div class="lineups">
+        ${[me, cpu].map(s => `<div>${s.players.map((p, i) => `
+          <div class="lrow">${photo(S.playerById[p.pid], 'sm')}<span class="pos">${SLOTS[i]}</span><span class="nm">${esc(p.name)}</span><b>${p.r.ovr}</b></div>`).join('')}</div>`).join('')}
+      </div>
+      <button class="big-btn" id="tip"><span>ティップオフ！</span></button>
+      <p class="hint center">操作がわからないときは、ホームの「📖 あそびかた」か、試合中の一時停止（Ⅱ）→「操作説明」を見てね。</p>`;
+    bind();
+    document.getElementById('tip').onclick = () => {
+      if (S.data.suspended && !confirm('中断した試合があります。新しい試合をはじめると消えますが、いいですか？')) return;
+      delete S.data.suspended;
+      Sound.unlock(); // スマホはボタンを押したときでないと音が出せない
+      match = { st: Game.create(me, cpu, Math.min(S.data.quarterMin, 5)), free, opp };
+      go('match');
+    };
+  }
+
+  // 中断した試合のつづきから
+  function resumeMatch() {
+    const sv = S.data.suspended;
+    const opp = S.teamById[sv.opp];
+    const me = sideOf(sv.home.filter(id => S.data.owned[id]), myTeam(), true, true);
+    const cpu = sideOf(sv.away, opp, false, true);
+    if (me.players.length < 5) { alert('選手がそろわないので再開できません'); delete S.data.suspended; S.save(); return render(); }
+    const st = Game.create(me, cpu, sv.qLen / 60);
+    Object.assign(st, { score: sv.score, q: sv.q, clock: sv.clock, qScores: sv.qScores, poss: sv.poss });
+    [0, 1].forEach(sd => Object.keys(st.box[sd]).forEach(pid => { if (sv.box[sd][pid]) st.box[sd][pid] = sv.box[sd][pid]; }));
+    match = { st, free: sv.free, opp, resume: { firstPoss: sv.firstPoss, teamFouls: sv.teamFouls } };
+    go('match');
+  }
+
+  async function renderMatch() {
+    const m = match;
+    $app.innerHTML = '<div class="m3d" id="m3d"><div class="m3d-loading">読みこみ中…</div></div>';
+    document.body.classList.add('playing');
+    if (!window.Match3D) await new Promise(r => window.addEventListener('match3d-ready', r, { once: true }));
+    if (match !== m) return;
+    const end = () => document.body.classList.remove('playing');
+    m.ctrl = await Match3D.start({
+      el: document.getElementById('m3d'),
+      st: m.st,
+      cpuLv: S.data.cpuLv,
+      faceOf: pid => S.playerById[pid].photo,
+      faceHiOf: pid => S.playerById[pid].face,
+      helpHtml: HELP,
+      resume: m.resume,
+      onSave: snap => {
+        S.data.suspended = {
+          ...snap, opp: m.opp.id, free: m.free,
+          home: m.st.sides[0].players.map(p => p.pid), away: m.st.sides[1].players.map(p => p.pid),
+        };
+        S.save();
+      },
+      onSuspend: () => { end(); match = null; toast('試合を中断しました。ホームから再開できます'); go('home'); },
+      onEnd: () => { end(); if (match === m) finishMatch(); },
+      onQuit: () => { end(); match = null; delete S.data.suspended; S.save(); go('home'); },
+    });
+  }
+
+  function finishMatch() {
+    const { st, free, opp } = match;
+    delete S.data.suspended;
+    const win = st.score[0] > st.score[1];
+    const coins = (win ? 150 : 60) + (free ? 0 : 20);
+    S.data.coins += coins;
+    const box = st.box[0];
+    const lvUps = [];
+    const lineup = st.sides[0].players.map(p => p.pid);
+    Object.entries(box).forEach(([pid, b]) => {
+      const xp = Math.round((25 + b.pts * 1.5 + b.reb + b.ast * 2 + b.stl * 2 + b.blk * 2) * (win ? 1.3 : 1));
+      b.xp = xp;
+      if (S.addXp(pid, xp)) lvUps.push(pid);
+    });
+    S.ownedIds().filter(id => !lineup.includes(id)).forEach(id => { if (S.addXp(id, 12)) lvUps.push(id); });
+    if (!free) {
+      const sea = S.data.season;
+      record(S.data.fav, opp.id, st.score[0], st.score[1]);
+      simRound(opp.id);
+      sea.game++;
+    }
+    S.data.history.unshift({ opp: opp.id, s: [...st.score], free });
+    S.data.history = S.data.history.slice(0, 30);
+    S.save();
+
+    const all = [0, 1].flatMap(sd => st.sides[sd].players.map(p => ({ p, b: st.box[sd][p.pid], sd })));
+    const mvp = all.filter(x => x.sd === (win ? 0 : 1))
+      .sort((a, b) => (b.b.pts + b.b.reb + b.b.ast * 1.5) - (a.b.pts + a.b.reb + a.b.ast * 1.5))[0];
+    const tbl = sd => `<table class="box"><thead><tr><th>選手</th><th>PTS</th><th>RB</th><th>AST</th><th>STL</th><th>FG</th><th>3P</th>${sd === 0 ? '<th>XP</th>' : ''}</tr></thead>
+      <tbody>${st.sides[sd].players.map(p => { const b = st.box[sd][p.pid]; return `<tr><td>${esc(p.name)}</td><td><b>${b.pts}</b></td><td>${b.reb}</td><td>${b.ast}</td><td>${b.stl}</td><td>${b.fgm}/${b.fga}</td><td>${b.p3m}/${b.p3a}</td>${sd === 0 ? `<td>+${b.xp}</td>` : ''}</tr>`; }).join('')}</tbody></table>`;
+    const qs = st.qScores.map((s, i) => [s[0] - (i ? st.qScores[i - 1][0] : 0), s[1] - (i ? st.qScores[i - 1][1] : 0)]);
+
+    $app.innerHTML = `
+      ${header(win ? '勝利！' : '敗戦…')}
+      <section class="result ${win ? 'win' : 'lose'}">
+        <div class="final"><span>${esc(myName())}</span><b>${st.score[0]} - ${st.score[1]}</b><span>${esc(opp.short)}</span></div>
+        <div class="qs">${qs.map((s, i) => `<span>${i < 4 ? i + 1 + 'Q' : 'OT'} ${s[0]}-${s[1]}</span>`).join('')}</div>
+        <div class="reward">🪙 +${coins}${lvUps.length ? ` ・ レベルアップ ${[...new Set(lvUps)].length}人！（育成ptで能力を上げよう）` : ''}</div>
+      </section>
+      ${mvp ? `<div class="mvp">${photo(S.playerById[mvp.p.pid])}<div><small>MVP</small><b>${esc(mvp.p.name)}</b>
+        <span>${mvp.b.pts}点 ${mvp.b.reb}RB ${mvp.b.ast}AST</span></div></div>` : ''}
+      <h2 class="sec">${esc(myName())}</h2>${tbl(0)}
+      <h2 class="sec">${esc(opp.short)}</h2>${tbl(1)}
+      <div class="row2">
+        <button class="btn" data-go="team">育成へ</button>
+        <button class="btn primary" data-go="home">ホームへ</button>
+      </div>`;
+    match = null;
+    bind();
+  }
+
+  // ---------- 共通 ----------
+  function bind() {
+    $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
+      if (view === 'match' && match && !confirm('試合をやめますか？（記録されません）')) return;
+      match = null;
+      go(b.dataset.go, b.dataset.arg);
+    });
+    $app.querySelectorAll('[data-player]').forEach(b => b.onclick = () => openPlayer(b.dataset.player));
+  }
+
+  // あとから追加された推しチームのマスコット（控え）を、自分の選手に入れる
+  if (S.data.fav && S.teamById[S.data.fav]) {
+    let added = false;
+    S.teamById[S.data.fav].players.filter(p => p.mascot).forEach(p => { if (S.own(p.id)) added = true; });
+    if (added) { S.lineup(); S.save(); }
+  }
+  if (S.data.sound === undefined) S.data.sound = 1;
+  if (S.data.bgm === undefined) S.data.bgm = 1;
+  if (!(S.data.cpuLv >= 1 && S.data.cpuLv <= 10)) S.data.cpuLv = 4;
+  Sound.setOn(!!S.data.sound);
+  Sound.setBgmOn(!!S.data.bgm);
+  render();
+  if ('serviceWorker' in navigator && window.isSecureContext) startOffline();
+})();

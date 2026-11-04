@@ -1,0 +1,5 @@
+tools/raw.json
+tools/profile_cache.json
+__pycache__/
+.claude/
+models/
