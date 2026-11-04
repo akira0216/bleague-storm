@@ -3,3 +3,4 @@ tools/profile_cache.json
 __pycache__/
 .claude/
 models/
+sounds/

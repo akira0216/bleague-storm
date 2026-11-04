@@ -7,6 +7,7 @@ const SFX = window.Sound; // js/sound.js
 
 const HX = 12.425;          // リングの中心（センターからの距離）
 const RIM_Y = 3.05;
+const BALL_R = 0.13;        // ボールが床についたときの中心の高さ
 const LEN = 14, WID = 7.5;  // コートの半分の長さ・幅
 const CPU_NERF = 0.1;       // CPUをどのレベルでも全体に約10%弱くする
 const VIS = 1.2;            // 見やすいように選手を大きく描く（判定は本当の身長のまま）
@@ -1184,7 +1185,8 @@ function buildHoop(scene, d) {
   // ---- 台と支柱 ----
   const baseX = d * (LEN + 1.9);
   box(1.3, 0.9, 1.4, pad, baseX, 0.45, 0);                     // 台（パッド）
-  box(1.32, 0.12, 1.42, std('#ffffff', 0.6), baseX, 0.84, 0);  // 台の白いライン
+  // 台の白いライン。台の上の面と同じ高さにするとちらつくので、少し下げて少し大きくする
+  box(1.34, 0.12, 1.44, std('#ffffff', 0.6), baseX, 0.8, 0);
   box(0.32, 3.2, 0.32, pad, baseX - d * 0.35, 2.3, 0);         // 支柱
   // 支柱からボードのうしろへのびるアーム（ななめ）
   const armL = Math.abs(baseX - d * 0.35 - (BX + d * 0.15));
@@ -2166,7 +2168,6 @@ class Match {
   pause(on) {
     this.paused = on;
     if (!on) this.ui.menu.classList.remove('help-open');
-    if (SFX && on) SFX.drum(false);
     this.ui.menu.classList.toggle('open', on);
     if (!on) this.last = performance.now();
   }
@@ -2228,7 +2229,7 @@ class Match {
   }
 
   destroy() {
-    if (SFX) { SFX.drum(false); SFX.stopCrowd(); SFX.stopBgm(); }
+    if (SFX) { SFX.stopCrowd(); SFX.stopBgm(); }
     cancelAnimationFrame(this.raf);
     this.stopped = true;
     window.removeEventListener('keydown', this.onKey);
@@ -2385,6 +2386,23 @@ class Match {
     if (this.has(from, 'assist')) to.assistUntil = this.time + 3;
     from.face = Math.atan2(to.pos.x - from.pos.x, to.pos.z - from.pos.z);
     from.act = 'pass'; from.actT = 0;
+    // パスの種類をランダムにえらぶ（遠い→オーバーヘッド、近い・間に相手→バウンドが出やすい）
+    const dist = d2(from.pos, to.pos);
+    const dx = (to.pos.x - from.pos.x) / (dist || 1), dz = (to.pos.z - from.pos.z) / (dist || 1);
+    const between = this.players[1 - from.side].some(q => {
+      const t = (q.pos.x - from.pos.x) * dx + (q.pos.z - from.pos.z) * dz;
+      return t > 0.5 && t < dist - 0.5 && Math.abs((q.pos.x - from.pos.x) * dz - (q.pos.z - from.pos.z) * dx) < 0.9;
+    });
+    const r = rand();
+    const type = dist > 11 ? (r < 0.5 ? 'over' : r < 0.9 ? 'chest' : 'bounce')
+      : between ? (r < 0.5 ? 'bounce' : r < 0.75 ? 'over' : 'chest')
+      : dist < 4.5 ? (r < 0.45 ? 'bounce' : r < 0.9 ? 'chest' : 'over')
+      : (r < 0.55 ? 'chest' : r < 0.8 ? 'bounce' : 'over');
+    from.passType = type;
+    const H = from.look.height;
+    const y0 = from.y + (type === 'over' ? H + 0.12 : type === 'bounce' ? H * 0.55 : H * 0.72);
+    b.pos.set(from.pos.x + dx * 0.42, y0, from.pos.z + dz * 0.42);
+    b.pass = { type, x0: b.pos.x, y0, z0: b.pos.z, u: 0, speed: { chest: 14, over: 12.5, bounce: 11 }[type], bounced: false };
   }
 
   // 十字キーの向きにいる味方（向きがなければいちばん空いている味方）
@@ -2855,7 +2873,6 @@ class Match {
     if (this.leds) this.leds.tex.offset.x = (this.leds.tex.offset.x + dt * 0.03) % 1;
     this.crowd.ribbons.forEach(t => { t.offset.x = (t.offset.x + dt * 0.02) % 1; });
     this.crowd.look(b.pos.x, b.pos.z);
-    if (SFX) SFX.drum(this.state === 'play' && !!b.holder && b.holder.side === 1);
     this.handleInput(dt);
     this.all().forEach(p => this.think(p, dt));
     this.move(dt);
@@ -3124,17 +3141,24 @@ class Match {
         b.pos.set(p.pos.x + Math.sin(side) * 0.38, 0.13 + bounce * 0.82 + p.y, p.pos.z + Math.cos(side) * 0.38);
       }
     } else if (b.mode === 'pass') {
-      const to = b.to;
-      const tgt = new THREE.Vector3(to.pos.x, 1.3 + to.y, to.pos.z);
-      const v = tgt.sub(b.pos);
-      const l = v.length();
-      if (l < 0.45) {
+      const to = b.to, P = b.pass || (b.pass = { type: 'chest', x0: b.pos.x, y0: b.pos.y, z0: b.pos.z, u: 0, speed: 14 });
+      // 投げた所から受け手（動いている）までの道のりのうち、どこまで来たか（u：0〜1）
+      const endY = (P.type === 'bounce' ? 0.95 : 1.3) + to.y;
+      const total = Math.max(1, Math.hypot(to.pos.x - P.x0, to.pos.z - P.z0));
+      P.u = Math.min(1, P.u + P.speed * dt / total);
+      const u = P.u, K = 0.56; // バウンドパスは道のりの56%のところで床にはずむ
+      let y;
+      if (P.type === 'over') y = P.y0 + (endY - P.y0) * u + Math.sin(Math.PI * u) * Math.min(1.1, 0.09 * total);
+      else if (P.type === 'bounce') y = u < K ? P.y0 + (BALL_R - P.y0) * (u / K) : BALL_R + (endY - BALL_R) * ((u - K) / (1 - K));
+      else y = P.y0 + (endY - P.y0) * u + Math.sin(Math.PI * u) * Math.min(0.25, 0.03 * total);
+      if (P.type === 'bounce' && !P.bounced && u >= K) { P.bounced = true; if (SFX) SFX.dribble(0.8); }
+      if (u >= 1) {
         if (b.safe) to.safeUntil = this.time + 1.6; // スローインを受けた直後はスティールされない
         this.give(to);
         this.lastLoose = false;
       }
       else {
-        b.pos.addScaledVector(v.normalize(), Math.min(l, 14 * dt));
+        b.pos.set(P.x0 + (to.pos.x - P.x0) * u, y, P.z0 + (to.pos.z - P.z0) * u);
         // パスカット
         if (!b.safe) this.players[1 - b.from.side].forEach(q => {
           if (b.tried.has(q) || d2(q.pos, b.pos) > 0.6 || b.pos.y > 2.4 + q.y) return;
@@ -3143,6 +3167,7 @@ class Match {
           let pc = clamp(0.18 + (q.r.def - 60) / 160 + (q.side === 1 ? this.f * 0.06 - CPU_NERF * 0.4 : 0), 0.03, 0.5);
           pc += this.ifx(q).steal / 250 + (this.has(q, 'readPass') ? 0.08 : 0);
           if (q.side === 0) pc *= DEF_BOOST;
+          if (P.type === 'bounce') pc *= 1.1; // バウンドパスは遅いぶん少しだけカットされやすい
           if (this.has(b.from, 'noCut')) pc *= 0.4;
           if (rand() < pc) { if (this.has(q, 'fastBreak')) q.fbUntil = this.time + 4; this.box(q).stl++; this.call('パスカット！', q.info.name, 'STEAL', q.side); this.fx('stop', q.side); this.give(q, true); }
         });
@@ -3237,7 +3262,15 @@ class Match {
       const up = p.act === 'shoot' ? -2.6 - Math.min(p.actT, 0.3) : -2.9;
       L.sh.rotation.set(up, 0, -0.15); R.sh.rotation.set(up, 0, 0.15);
       L.el.rotation.x = -0.5; R.el.rotation.x = -0.5;
-    } else if (p.act === 'pass' || p.act === 'reach') {
+    } else if (p.act === 'pass') {
+      // パスの種類ごとに、ひじを曲げた形からぐっと押し出す
+      const k = Math.min(1, p.actT / 0.16);
+      const [sh0, sh1, el0] = { over: [-3.0, -2.2, -1.4], bounce: [-0.6, -1.0, -1.4], chest: [-1.1, -1.45, -1.7] }[p.passType] || [-1.4, -1.4, 0];
+      const a = sh0 + (sh1 - sh0) * k, e = el0 * (1 - k);
+      L.sh.rotation.set(a, 0, -0.12); R.sh.rotation.set(a, 0, 0.12);
+      L.el.rotation.x = e; R.el.rotation.x = e;
+      if (p.passType === 'bounce') { lk.legs[0].knee.rotation.x = 0.5; lk.legs[1].knee.rotation.x = 0.5; lk.legs[0].hip.rotation.x = -0.4; lk.legs[1].hip.rotation.x = -0.4; }
+    } else if (p.act === 'reach') {
       L.sh.rotation.set(-1.4, 0, -0.1); R.sh.rotation.set(-1.4, 0, 0.1);
       L.el.rotation.x = 0; R.el.rotation.x = 0;
     } else if (b.holder === p) {
