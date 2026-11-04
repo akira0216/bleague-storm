@@ -717,3 +717,8 @@ body.playing { overflow: hidden; }
 .sub-row:disabled { opacity: .45; }
 .sub-row.used { opacity: .3; }
 @media (max-width: 420px) { .sub-cols { grid-template-columns: 1fr; } }
+
+/* せってい：自分の BGM */
+.mybgm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--edge); }
+.mybgm > span { flex: 1 1 100%; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mybgm label.btn { cursor: pointer; }

@@ -1,4 +1,4 @@
-"""アプリのアイコン（icons/*.png）とロゴ（icons/logo.png）を作る。 python tools/make_icons.py
+"""アプリのアイコン（icons/*.png。Android 用の icon-maskable-*.png も）とロゴ（icons/logo.png）を作る。 python tools/make_icons.py
 デザイン：横浜エクセレンスの緑のエンブレム（ボール・風のうず・「B STORM」の帯）
 """
 import math
@@ -90,6 +90,13 @@ def icon():
     return im.convert("RGB").resize((512, 512), Image.LANCZOS)
 
 
+def maskable():
+    """Android 用：全面が緑。丸や角丸に切りぬかれても欠けないよう、エンブレムはまん中の安全な円（直径80%）の中"""
+    im = radial(N, (30, 150, 80), (4, 40, 20), cy=0.45, r=0.75).convert("RGBA")
+    emblem(im, N / 2, N * 0.5, N * 0.33)
+    return im.convert("RGB").resize((512, 512), Image.LANCZOS)
+
+
 def logo():
     """アプリの中で使う、背景なしのロゴ"""
     im = Image.new("RGBA", (N, N), (0, 0, 0, 0))
@@ -100,5 +107,8 @@ def logo():
 big = icon()
 for n in (180, 192, 512):
     big.resize((n, n), Image.LANCZOS).save(OUT / f"icon-{n}.png")
+mk = maskable()
+for n in (192, 512):
+    mk.resize((n, n), Image.LANCZOS).save(OUT / f"icon-maskable-{n}.png")
 logo().save(OUT / "logo.png")
 print("ok")

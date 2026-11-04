@@ -515,6 +515,58 @@
 
   const lvName = v => ['', 'とてもよわい', 'よわい', 'すこしよわい', 'ふつう', 'ふつう', 'すこしつよい', 'つよい', 'とてもつよい', 'すごくつよい', 'さいきょう'][v];
 
+  // ---------- 自分の BGM（このスマホの中だけに保存。GitHub などには送らない） ----------
+  const BgmStore = (() => {
+    let dbp = null;
+    const db = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('bstorm-bgm', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('songs');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const tx = (mode, fn) => db().then(d => new Promise((res, rej) => {
+      const t = d.transaction('songs', mode);
+      const q = fn(t.objectStore('songs'));
+      t.oncomplete = () => res(q && q.result);
+      t.onerror = () => rej(t.error);
+    }));
+    return {
+      get: k => tx('readonly', st => st.get(k)),
+      put: (k, v) => tx('readwrite', st => st.put(v, k)),
+      del: k => tx('readwrite', st => st.delete(k)),
+    };
+  })();
+  const myBgm = {}; // mode → 曲のファイル名
+  const BGM_MODES = [['off', 'オフェンス'], ['def', 'ディフェンス']];
+  function loadMyBgm() {
+    if (!window.indexedDB) return;
+    BGM_MODES.forEach(([k]) => BgmStore.get(k).then(v => {
+      if (!v || !v.data) return;
+      myBgm[k] = v.name;
+      Sound.setCustom(k, v.data).catch(() => {});
+      if (view === 'settings') render();
+    }).catch(() => {}));
+  }
+
+  async function pickBgm(k, file) {
+    if (!file) return;
+    if (file.size > 60 * 1024 * 1024) return toast('ファイルが大きすぎます（60MBまで）');
+    toast('曲を読みこみ中…');
+    try {
+      const data = await file.arrayBuffer();
+      Sound.unlock();
+      await Sound.setCustom(k, data); // 読めない形式ならここでエラー
+      await BgmStore.put(k, { name: file.name, data });
+      myBgm[k] = file.name;
+      toast(`${k === 'off' ? 'オフェンス' : 'ディフェンス'}の曲を「${file.name}」にしました`);
+    } catch (e) {
+      // 前にえらんでいた曲にもどす
+      BgmStore.get(k).then(v => Sound.setCustom(k, v && v.data ? v.data : null)).catch(() => Sound.setCustom(k, null));
+      toast('この曲は読みこめませんでした（mp3・m4a などの音声ファイルをえらんでね）');
+    }
+    render();
+  }
+
   function renderSettings() {
     const d = S.data;
     const opt = (key, vals) => vals.map(([v, l]) => `<button class="chip ${d[key] === v ? 'on' : ''}" data-set="${key}" data-val="${v}">${l}</button>`).join('');
@@ -532,6 +584,13 @@
         <h3>1クォーターの長さ</h3><div class="chips">${opt('quarterMin', [[2, '2分'], [3, '3分'], [5, '5分']])}</div>
         <h3>効果音・観客の声</h3><div class="chips">${opt('sound', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGM</h3><div class="chips">${opt('bgm', [[1, 'あり'], [0, 'なし']])}</div>
+        <h3>BGMの曲</h3>
+        <p class="hint">スマホに入っている曲（mp3・m4a など）を、オフェンスとディフェンスのBGMにできます。曲はこのスマホの中だけに保存され、ほかの人には届きません。えらばないときは、アプリで作った曲が流れます。</p>
+        ${BGM_MODES.map(([k, l]) => `<div class="mybgm">
+          <span>${l}：<b>${myBgm[k] ? '🎵 ' + esc(myBgm[k]) : 'アプリの曲'}</b></span>
+          <label class="btn">曲をえらぶ<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" data-bgmfile="${k}" hidden></label>
+          ${myBgm[k] ? `<button class="btn" data-bgmreset="${k}">アプリの曲にもどす</button>` : ''}
+        </div>`).join('')}
       </div>
       <div class="panel">
         <h3>オフライン</h3>
@@ -567,6 +626,15 @@
     document.getElementById('cpuLv').oninput = e => setLv(Number(e.target.value));
     $app.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => setLv(d.cpuLv + Number(b.dataset.lv)));
     document.getElementById('checkUpd').onclick = () => checkUpdate(true);
+    $app.querySelectorAll('[data-bgmfile]').forEach(inp => inp.onchange = () => pickBgm(inp.dataset.bgmfile, inp.files[0]));
+    $app.querySelectorAll('[data-bgmreset]').forEach(b => b.onclick = async () => {
+      const k = b.dataset.bgmreset;
+      await Sound.setCustom(k, null);
+      delete myBgm[k];
+      try { await BgmStore.del(k); } catch (e) { /* 消せなくても次から使わない */ }
+      toast('アプリの曲にもどしました');
+      render();
+    });
     document.getElementById('reset').onclick = () => {
       if (confirm('本当に最初からやりなおしますか？')) { S.reset(); go('home'); }
     };
@@ -850,6 +918,7 @@
   if (!(S.data.cpuLv >= 1 && S.data.cpuLv <= 10)) S.data.cpuLv = 4;
   Sound.setOn(!!S.data.sound);
   Sound.setBgmOn(!!S.data.bgm);
+  loadMyBgm();
   render();
   if ('serviceWorker' in navigator && window.isSecureContext) startOffline();
 })();

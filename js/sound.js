@@ -9,6 +9,9 @@ window.Sound = (() => {
   let bgmBus = null;
   let bgmOn = true;
   let bgm = null;
+  // 自分でえらんだ曲（mode → { buf: AudioBuffer, gain }）。ctx ができる前は raw（ArrayBuffer）で待つ
+  const custom = {};
+  const customRaw = {};
 
   // さいしょにボタンを押したときに呼ぶ（スマホは操作のあとでないと音が出ない）
   function unlock() {
@@ -27,8 +30,39 @@ window.Sound = (() => {
       noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
       const d = noise.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      Object.keys(customRaw).forEach(m => decodeCustom(m));
     }
     if (ctx.state === 'suspended') ctx.resume();
+  }
+
+  // ---------- 自分の曲 ----------
+  // data：音声ファイルの ArrayBuffer（null で、もとのプログラムの曲にもどす）。読めなかったら reject
+  function setCustom(mode, data) {
+    delete custom[mode];
+    delete customRaw[mode];
+    if (!data) return Promise.resolve(null);
+    customRaw[mode] = data;
+    return ctx ? decodeCustom(mode) : Promise.resolve(null);
+  }
+
+  function decodeCustom(mode) {
+    const raw = customRaw[mode];
+    if (!raw || !ctx) return Promise.resolve(null);
+    // decodeAudioData は元のデータを使えなくするので、コピーをわたす
+    return new Promise((res, rej) => {
+      const pr = ctx.decodeAudioData(raw.slice(0), res, rej);
+      if (pr && pr.catch) pr.catch(() => {}); // 新しいブラウザは Promise でもエラーを返すので、二重に出ないようにする
+    }).then(buf => {
+      if (customRaw[mode] !== raw) return null; // とちゅうで別の曲にかえられた
+      delete customRaw[mode];
+      // 市販の曲は大きいので、プログラムの曲と同じくらいの大きさにそろえる（平均の音の強さで）
+      const d = buf.getChannelData(0);
+      let sum = 0, n = 0;
+      for (let i = 0; i < d.length; i += 64) { sum += d[i] * d[i]; n++; }
+      const rms = Math.sqrt(sum / (n || 1)) || 0.1;
+      custom[mode] = { buf, gain: Math.max(0.1, Math.min(2, 0.2 / rms)) };
+      return buf.duration;
+    });
   }
 
   function setBgmOn(v) {
@@ -680,6 +714,7 @@ window.Sound = (() => {
     bgm.timer = setInterval(() => {
       if (!bgm) return;
       const t = bgm.tracks[bgm.mode];
+      if (t.src) { bgm.next = ctx.currentTime + 0.06; return; }
       while (bgm.next < ctx.currentTime + 0.2) {
         t.eng.step(bgm.next, t.i++);
         bgm.next += t.eng.sx;
@@ -696,15 +731,39 @@ window.Sound = (() => {
       old.gain.gain.cancelScheduledValues(now);
       old.gain.gain.setValueAtTime(old.gain.gain.value, now);
       old.gain.gain.linearRampToValueAtTime(0, now + 0.6);
+      stopSrc(old, now + 0.7);
     }
     const t = track(mode);
-    // 前に止めたところの次の小節から（曲の頭にもどってばかりにならないように）
-    t.i = Math.ceil(t.i / 16) * 16;
+    const cu = custom[mode];
+    let vol = SONGS[mode].vol; // 2曲の音量をそろえる
+    if (cu) {
+      // 自分の曲：くり返し再生。前に止めたところのつづきから
+      const src = ctx.createBufferSource();
+      src.buffer = cu.buf;
+      src.loop = true;
+      src.connect(t.gain);
+      t.pos0 = (t.pos || 0) % cu.buf.duration;
+      t.at = now;
+      src.start(now, t.pos0);
+      t.src = src;
+      vol = cu.gain;
+    } else {
+      // 前に止めたところの次の小節から（曲の頭にもどってばかりにならないように）
+      t.i = Math.ceil(t.i / 16) * 16;
+    }
     t.gain.gain.cancelScheduledValues(now);
-    t.gain.gain.setValueAtTime(first ? SONGS[mode].vol : 0, now); // 2曲の音量をそろえる（vol）
-    if (!first) t.gain.gain.linearRampToValueAtTime(SONGS[mode].vol, now + 0.35);
+    t.gain.gain.setValueAtTime(first ? vol : 0, now);
+    if (!first) t.gain.gain.linearRampToValueAtTime(vol, now + 0.35);
     bgm.mode = mode;
     bgm.next = now + 0.06;
+  }
+
+  // 自分の曲の再生を止める（どこまで鳴らしたかをおぼえておく）
+  function stopSrc(t, when) {
+    if (!t.src) return;
+    t.pos = t.pos0 + (ctx.currentTime - t.at);
+    try { t.src.stop(when); } catch (e) { /* もう止まっている */ }
+    t.src = null;
   }
 
   function stopBgm() {
@@ -712,6 +771,7 @@ window.Sound = (() => {
     clearInterval(bgm.timer);
     const now = ctx.currentTime;
     Object.values(bgm.tracks).forEach(t => {
+      stopSrc(t, now + 0.35);
       t.gain.gain.cancelScheduledValues(now);
       t.gain.gain.setValueAtTime(t.gain.gain.value, now);
       t.gain.gain.linearRampToValueAtTime(0, now + 0.3);
@@ -746,7 +806,7 @@ window.Sound = (() => {
   }
 
   return {
-    unlock, setOn, setBgmOn, startBgm, stopBgm, setBgmMode, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
+    unlock, setOn, setBgmOn, startBgm, stopBgm, setBgmMode, setCustom, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
     get on() { return on; },
     get state() { return ctx ? ctx.state : "none"; },
   };

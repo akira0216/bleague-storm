@@ -1,6 +1,6 @@
 // オフラインでも使えるようにファイルを保存しておく
 // ファイルを更新したら VERSION と index.html の ?v= を上げること（上げないと古いままになる）
-const VERSION = 'v1.9.5';
+const VERSION = 'v1.9.6';
 // 選手の写真・顔・ロゴ（約10MB）は、アプリを更新しても取り直さないよう別に保存する
 // （選手データを取り直して画像が変わったときだけ、ここを上げる）
 const ASSETS = 'bp-assets-1';
@@ -24,6 +24,8 @@ const FILES = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
+  './icons/icon-maskable-512.png',
   './icons/logo.png',
 ];
 const isAsset = path => /\/(photos|faces|logos)\/[^/]+$/.test(path);
