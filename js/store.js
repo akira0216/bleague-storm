@@ -38,9 +38,9 @@ window.Store = (() => {
     };
   }
 
-  // アイテム：inv は持っているアイテム（id → 強化 0〜3）、equip は選手ごとにつけているアイテム
+  // アイテム：inv は持っているアイテム（id → 強化 0〜4 ＝ ★1〜★5）、copies は強化に使える同じアイテムの数、equip は選手ごとにつけているアイテム
   // day・used は1日3回の無料ガチャ、pity は天井（SSR以上が出ないまま引いた回数）
-  function blankItems() { return { inv: {}, equip: {}, day: '', used: 0, pity: 0, pulls: 0 }; }
+  function blankItems() { return { inv: {}, copies: {}, equip: {}, day: '', used: 0, pity: 0, pulls: 0 }; }
 
   function load() {
     try {
@@ -53,6 +53,7 @@ window.Store = (() => {
         delete d.speed;
         const out = Object.assign(blank(), d);
         out.items = Object.assign(blankItems(), d.items || {});
+        out.items.copies = out.items.copies || {};
         return out;
       }
     } catch (e) { console.warn('load failed', e); }
@@ -77,27 +78,53 @@ window.Store = (() => {
 
   // ---------- アイテム ----------
   const IT = window.BP_ITEMS;
-  const FREE_PER_DAY = 3, COIN_1 = 100, COIN_10 = 900, PITY = 30, PLUS_MAX = 3;
+  const FREE_PER_DAY = 3, COIN_1 = 100, COIN_10 = 900, PITY = 30, PLUS_MAX = IT.LV_MAX;
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
   const equipOf = pid => (data.items.equip[pid] || []).filter(id => IT.byId[id] && id in data.items.inv);
 
-  // アイテムの効果を合計（強化 +1 ごとに、いちばん上の効果が +1）
+  // アイテムの効果を合計（★が上がるごとに、そのアイテムの効果が全部 約20%ずつ強くなる）
+  // sp5：★5 にした SSR・UR の、とくべつな効果（試合でさらに強くなる）
   function itemTotal(pid) {
-    const t = { sp: [] };
+    const t = { sp: [], sp5: [] };
     if (!data.owned[pid]) return t;
     equipOf(pid).forEach(id => {
       const it = IT.byId[id];
-      Object.entries(it.e).forEach(([k, v], i) => { t[k] = (t[k] || 0) + v + (i === 0 ? data.items.inv[id] : 0); });
+      const lv = data.items.inv[id] || 0;
+      Object.entries(it.e).forEach(([k, v], i) => { t[k] = (t[k] || 0) + IT.lvVal(v, lv, i === 0); });
       if (it.sp) t.sp.push(it.sp);
+      if (it.sp && lv >= IT.LV_MAX) t.sp5.push(it.sp);
     });
-    if (t.sp.includes('home')) t.all = (t.all || 0) + 2; // 自分のチームはいつもホーム
+    if (t.sp.includes('home')) t.all = (t.all || 0) + (t.sp5.includes('home') ? 3 : 2); // 自分のチームはいつもホーム
     return t;
+  }
+
+  // 強化：同じアイテムを使って ★ を1つ上げる。できなければエラーの文
+  function upgrade(id) {
+    const it = data.items;
+    if (!(id in it.inv)) return 'このアイテムを持っていません';
+    const lv = it.inv[id];
+    if (lv >= IT.LV_MAX) return 'もう ★5 です';
+    const need = IT.LV_COST[lv];
+    if ((it.copies[id] || 0) < need) return `同じアイテムがあと ${need - (it.copies[id] || 0)} こ必要です`;
+    it.copies[id] -= need;
+    if (!it.copies[id]) delete it.copies[id];
+    it.inv[id] = lv + 1;
+    save();
+    return null;
+  }
+
+  // ★5 にするのに、あと何こ要るか
+  function copiesNeeded(id) {
+    const lv = data.items.inv[id] || 0;
+    let n = 0;
+    for (let l = lv; l < IT.LV_MAX; l++) n += IT.LV_COST[l];
+    return Math.max(0, n - (data.items.copies[id] || 0));
   }
 
   // 試合中だけの効果（速さ・ゲージ・フリースロー・ダンク・スティール・ブロックと、とくべつな効果）
   function itemFx(pid) {
     const t = itemTotal(pid);
-    return { speed: t.speed || 0, gauge: t.gauge || 0, ft: t.ft || 0, dunk: t.dunk || 0, steal: t.steal || 0, block: t.block || 0, sp: t.sp };
+    return { speed: t.speed || 0, gauge: t.gauge || 0, ft: t.ft || 0, dunk: t.dunk || 0, steal: t.steal || 0, block: t.block || 0, sp: t.sp, sp5: t.sp5 };
   }
 
   // だれがつけているか
@@ -146,9 +173,10 @@ window.Store = (() => {
     const item = pool[Math.floor(rand01() * pool.length)];
     it.pity = rar === 'SSR' || rar === 'UR' ? 0 : it.pity + 1;
     it.pulls++;
-    const res = { id: item.id, rarity: rar, isNew: false, plus: 0, coins: 0 };
+    const res = { id: item.id, rarity: rar, isNew: false, dup: 0, coins: 0 };
+    // はじめて → NEW。同じアイテム → 強化用にためる（★5 に足りる分まで）。それ以上はコイン
     if (!(item.id in it.inv)) { it.inv[item.id] = 0; res.isNew = true; }
-    else if (it.inv[item.id] < PLUS_MAX) { it.inv[item.id]++; res.plus = it.inv[item.id]; }
+    else if (copiesNeeded(item.id) > 0) { it.copies[item.id] = (it.copies[item.id] || 0) + 1; res.dup = it.copies[item.id]; }
     else { res.coins = IT.RARITY[rar].coin; data.coins += res.coins; }
     return res;
   }
@@ -227,6 +255,6 @@ window.Store = (() => {
   return {
     get data() { return data; }, save, reset, ATTRS, ATTR_NAME,
     teams, teamById, playerById, own, rating, addXp, xpNeed, train, ownedIds, lineup,
-    ITEM: { FREE_PER_DAY, COIN_1, COIN_10, PITY, PLUS_MAX }, equipOf, itemTotal, itemFx, ownerOf, equip, unequip, freeLeft, pull,
+    ITEM: { FREE_PER_DAY, COIN_1, COIN_10, PITY, PLUS_MAX }, equipOf, itemTotal, itemFx, ownerOf, equip, unequip, freeLeft, pull, upgrade, copiesNeeded,
   };
 })();

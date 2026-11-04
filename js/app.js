@@ -102,27 +102,77 @@
   const IT = window.BP_ITEMS;
   const RAR_ORDER = { UR: 0, SSR: 1, SR: 2, R: 3, N: 4 };
 
-  // 効果の文（強化 +1 ごとに、いちばん上の効果が +1）
-  function itemEffect(it, plus = 0) {
-    const pct = k => (k === 'speed' || k === 'gauge' ? '%' : '');
-    const s = Object.entries(it.e).map(([k, v], i) => `${IT.KEY_NAME[k]} +${v + (i === 0 ? plus : 0)}${pct(k)}`).join('・');
-    return s;
-  }
+  // 効果（★が上がるごとに、全部の効果が約20%ずつ強くなる）
+  const effList = (it, lv = 0) => Object.entries(it.e).map(([k, v], i) => `${IT.KEY_NAME[k]} +${IT.lvVal(v, lv, i === 0)}${k === 'speed' || k === 'gauge' ? '%' : ''}`);
+  function itemEffect(it, lv = 0) { return effList(it, lv).join('・'); }
+  const stars = lv => `<span class="ic-stars" aria-label="★${lv + 1}">${'★'.repeat(lv + 1)}<i>${'★'.repeat(IT.LV_MAX - lv)}</i></span>`;
+  const itemSvg = ty => `<svg class="ic-svg" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ty.svg}</svg>`;
+  // 強化できるか（同じアイテムが足りているか）
+  const canUp = id => { const lv = S.data.items.inv[id] || 0; return lv < IT.LV_MAX && (S.data.items.copies[id] || 0) >= IT.LV_COST[lv]; };
 
+  // opt.lv：表示する強化（ガチャの結果は、引いたときの強化）
   function itemCard(id, opt = {}) {
     const it = IT.byId[id];
-    const plus = opt.plus !== undefined ? opt.plus : S.data.items.inv[id] || 0; // ガチャの結果は、引いたときの強化
+    const lv = opt.lv !== undefined ? opt.lv : S.data.items.inv[id] || 0;
     const owner = opt.owner === undefined ? S.ownerOf(id) : opt.owner;
     const ty = IT.typeById[it.type];
-    return `<div class="icard r-${it.rarity}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
-      <div class="ic-top"><span class="ic-ico">${ty.icon}</span><span class="ic-rar">${it.rarity}</span></div>
-      <b class="ic-name">${esc(it.name)}${plus ? ` <em>+${plus}</em>` : ''}</b>
+    const cp = opt.lv === undefined ? S.data.items.copies[id] || 0 : 0;
+    const up = opt.lv === undefined && canUp(id);
+    const aw = it.sp && lv >= IT.LV_MAX;
+    return `<div class="icard r-${it.rarity}${up ? ' can-up' : ''}${aw ? ' awake' : ''}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
+      <div class="ic-art">${itemSvg(ty)}</div>
+      <span class="ic-rar">${it.rarity}</span>
+      ${cp ? `<span class="ic-cp" title="強化に使える同じアイテム">×${cp}</span>` : ''}
+      ${stars(lv)}
+      <b class="ic-name">${esc(it.name)}</b>
       <small class="ic-type">${esc(ty.name)}</small>
-      <small class="ic-eff">${esc(itemEffect(it, plus))}</small>
-      ${it.sp ? `<small class="ic-sp">★ ${esc(IT.SP[it.sp])}</small>` : ''}
+      <div class="ic-effs">${effList(it, lv).map(e => `<span>${esc(e)}</span>`).join('')}</div>
+      ${it.sp ? `<small class="ic-sp">◆ ${esc(IT.SP[it.sp])}${aw ? `<em>★5：${esc(IT.SP5[it.sp])}</em>` : ''}</small>` : ''}
       ${owner ? `<small class="ic-own">👤 ${esc(S.playerById[owner].name)}</small>` : ''}
+      ${up ? '<span class="ic-up">▲ 強化できる</span>' : ''}
       ${opt.extra || ''}
     </div>`;
+  }
+
+  // アイテムの詳しい画面と強化
+  function openItem(id, justUp) {
+    const it = IT.byId[id];
+    const ty = IT.typeById[it.type];
+    const lv = S.data.items.inv[id] || 0;
+    const cp = S.data.items.copies[id] || 0;
+    const max = lv >= IT.LV_MAX;
+    const need = max ? 0 : IT.LV_COST[lv];
+    const dlg = document.getElementById('dlg');
+    dlg.innerHTML = `
+      <div class="sheet isheet">
+        <button class="close" aria-label="とじる">×</button>
+        <div class="isheet-card${justUp ? ' just-up' : ''}">${itemCard(id, { cls: 'big', lv })}</div>
+        <div class="up-box">
+          <h3>強化 ${stars(lv)}</h3>
+          ${max ? `<p class="hint">★5（最大）です。${it.sp ? `とくべつな効果も強くなっています：<b>${esc(IT.SP5[it.sp])}</b>` : ''}<br>これからは同じアイテムが出たらコインになります。</p>`
+            : `<div class="up-cmp">
+                <div><small>いま ★${lv + 1}</small>${effList(it, lv).map(e => `<span>${esc(e)}</span>`).join('')}</div>
+                <b class="arrow">→</b>
+                <div class="next"><small>強化後 ★${lv + 2}</small>${effList(it, lv + 1).map(e => `<span>${esc(e)}</span>`).join('')}</div>
+              </div>
+              ${it.sp && lv + 1 >= IT.LV_MAX ? `<p class="hint">★5 にすると、とくべつな効果も強くなります：<b>${esc(IT.SP5[it.sp])}</b></p>` : ''}
+              <p class="hint">使う同じアイテム：<b>${need}こ</b>（持っている ${cp}こ）　${S.copiesNeeded(id) ? `★5 まで あと ${S.copiesNeeded(id)}こ 集めよう` : '★5 まで集まっています'}</p>
+              <button class="btn primary wide" id="doUp" ${cp >= need ? '' : 'disabled'}>${cp >= need ? `★${lv + 2} に強化する` : `同じアイテムがあと ${need - cp}こ 必要`}</button>`}
+          <p class="hint">同じアイテムはガチャで出ます。★1→★2 に1こ、★3 に2こ、★4 に3こ、★5 に4こ（合計10こ）。</p>
+        </div>
+      </div>`;
+    dlg.classList.add('open');
+    const close = () => { dlg.classList.remove('open'); dlg.innerHTML = ''; render(); };
+    dlg.querySelector('.close').onclick = close;
+    dlg.onclick = e => { if (e.target === dlg) close(); };
+    const b = document.getElementById('doUp');
+    if (b) b.onclick = () => {
+      const err = S.upgrade(id);
+      if (err) return toast(err);
+      toast(`${it.name} が ★${S.data.items.inv[id] + 1} になった！`);
+      if (window.Sound && Sound.cheer) { Sound.unlock(); Sound.cheer(S.data.items.inv[id] >= IT.LV_MAX ? 0.9 : 0.5); }
+      openItem(id, true);
+    };
   }
 
   function renderGacha() {
@@ -134,7 +184,7 @@
       ${header('ガチャ')}
       <section class="gacha-hero">
         <div class="gh-title">🎁 アイテムガチャ</div>
-        <p>シューズ・ヘッドバンドなど100種類。選手につけると能力が上がります（1人5つまで、同じ種類は1つ）。</p>
+        <p>バッシュ・リストバンド・マイボールなど100種類。選手につけると能力が上がります（1人5つまで、同じ種類は1つ）。同じアイテムを集めると ★5 まで強化できます。</p>
         <div class="gh-info"><span>今日の無料 <b>${free}</b> / ${C.FREE_PER_DAY}</span><span>SSR以上まで あと <b>${Math.max(1, C.PITY - it.pity)}</b> 回</span><span>持っているアイテム <b>${owned}</b> / ${IT.items.length}</span></div>
       </section>
       <div class="gacha-btns">
@@ -148,7 +198,7 @@
         <details class="rates"><summary>出る確率</summary>
           <p>N 50% ／ R 30% ／ SR 15% ／ SSR 4.5% ／ UR 0.5%</p>
           <p>${C.PITY}回つづけてSSR以上が出なかったら、次はかならずSSR以上。</p>
-          <p>同じアイテムがまた出たら +1 強化（+${C.PLUS_MAX}まで）。そのあとはコイン（N 20・R 40・SR 80・SSR 200・UR 500）。</p>
+          <p>同じアイテムがまた出たら、強化用にたまります（持ち物でカードを押して強化。★5 まで合計10こ）。★5 に足りたあとはコイン（N 20・R 40・SR 80・SSR 200・UR 500）。</p>
         </details>
       </div>`;
     bind();
@@ -170,7 +220,7 @@
       <div class="gres-cards ${results.length > 1 ? 'ten' : 'one'}">${results.map((x, i) => `
         <div class="flip" style="--d:${i * 0.12 + 0.2}s">
           <div class="back r-${x.rarity}"><span>?</span></div>
-          ${itemCard(x.id, { cls: 'front', owner: null, plus: x.coins ? S.ITEM.PLUS_MAX : x.plus, extra: x.isNew ? '<span class="tag-new">NEW</span>' : x.plus ? `<span class="tag-up">強化 +${x.plus}</span>` : `<span class="tag-coin">🪙 +${x.coins}</span>` })}
+          ${itemCard(x.id, { cls: 'front', owner: null, lv: S.data.items.inv[x.id] || 0, extra: x.isNew ? '<span class="tag-new">NEW</span>' : x.dup ? `<span class="tag-up">同じアイテム ×${x.dup}${canUp(x.id) ? '・強化できる！' : ''}</span>` : `<span class="tag-coin">🪙 +${x.coins}</span>` })}
         </div>`).join('')}</div>`;
     if (window.Sound && (best === 'SSR' || best === 'UR')) setTimeout(() => Sound.cheer && Sound.cheer(best === 'UR' ? 1 : 0.7), 600);
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -183,15 +233,17 @@
       .sort((a, b) => RAR_ORDER[IT.byId[a].rarity] - RAR_ORDER[IT.byId[b].rarity] || a.localeCompare(b));
     $app.innerHTML = `
       ${header('持ち物（アイテム）')}
-      <p class="hint">選手の画面（チーム・育成 → 選手をタップ）でつけられます。持っているのは ${Object.keys(inv).length} / ${IT.items.length} 種類。</p>
+      <p class="hint">カードを押すと強化できます（同じアイテムを使って ★5 まで）。選手の画面（チーム・育成 → 選手をタップ）でつけられます。持っているのは ${Object.keys(inv).length} / ${IT.items.length} 種類。</p>
+      ${Object.keys(inv).some(canUp) ? `<p class="up-note">▲ 強化できるアイテムが ${Object.keys(inv).filter(canUp).length}こ あります</p>` : ''}
       <div class="chips itabs">
         <button class="chip ${itemTab === 'all' ? 'on' : ''}" data-tab="all">すべて</button>
-        ${IT.TYPES.map(t => `<button class="chip ${itemTab === t.id ? 'on' : ''}" data-tab="${t.id}">${t.icon} ${t.name}</button>`).join('')}
+        ${IT.TYPES.map(t => `<button class="chip ${itemTab === t.id ? 'on' : ''}" data-tab="${t.id}">${t.name}</button>`).join('')}
       </div>
-      ${ids.length ? `<div class="igrid">${ids.map(id => itemCard(id)).join('')}</div>`
+      ${ids.length ? `<div class="igrid">${ids.map(id => itemCard(id, { attr: `data-item="${id}" role="button" tabindex="0"`, cls: 'pickable' })).join('')}</div>`
         : `<div class="panel center"><p>まだアイテムがありません。</p><button class="btn primary" data-go="gacha">🎁 ガチャを引く</button></div>`}`;
     bind();
     $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { itemTab = b.dataset.tab; renderItems(); });
+    $app.querySelectorAll('[data-item]').forEach(b => b.onclick = () => openItem(b.dataset.item));
   }
 
   // 選手につけるアイテムをえらぶ（同じ種類をつけていたら入れかえ）

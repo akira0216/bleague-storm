@@ -2389,6 +2389,8 @@ class Match {
   // アイテムの効果（自分の選手だけ。CPU はなし）
   ifx(p) { return (p && p.info.fx) || NO_FX; }
   has(p, sp) { return !!(p && p.info.fx && p.info.fx.sp.includes(sp)); }
+  // ★5 にしたアイテムのとくべつな効果は 1.5倍（それ以外は 1）
+  aw(p, sp) { return p && p.info.fx && p.info.fx.sp5 && p.info.fx.sp5.includes(sp) ? 1.5 : 1; }
 
   // アイテムでシュートが入りやすくなる分（とくべつな効果）
   itemShotBonus(p, kind, three) {
@@ -2396,14 +2398,15 @@ class Match {
     let b = 0;
     if (kind === 'ft') b += f.ft * 0.006;
     if (kind === 'dunk') b += f.dunk * 0.004;
-    if (three && p.hot3) { b += 0.1; p.hot3 = false; }                 // スナイパーバンド
+    if (three && p.hot3) { b += 0.1 * this.aw(p, 'nextThree'); p.hot3 = false; }                 // スナイパーバンド
     if ((p.zoneUntil || 0) > t) b += 0.15;                             // ゾーン
-    if (this.has(p, 'clutch') && st.q >= 4 && st.clock <= 60) b += 0.08;
+    if (this.has(p, 'clutch') && st.q >= 4 && st.clock <= 60) b += 0.08 * this.aw(p, 'clutch');
     if ((p.assistUntil || 0) > t) b += 0.08;                           // 千里眼スリーブのパス
-    if (this.has(p, 'afterBeat') && (p.beatUntil || 0) > t) b += 0.08;
-    if (this.has(p, 'fastBreak') && (p.fbUntil || 0) > t) b += 0.1;
-    if (this.has(p, 'ot') && st.q > 4) b += 0.06;
-    if (this.bond && this.bond[p.side]) b += 0.04;                     // ピック＆ロールのきずな
+    if (this.has(p, 'afterBeat') && (p.beatUntil || 0) > t) b += 0.08 * this.aw(p, 'afterBeat');
+    if (this.has(p, 'fastBreak') && (p.fbUntil || 0) > t) b += 0.1 * this.aw(p, 'fastBreak');
+    if (this.has(p, 'ot') && st.q > 4) b += 0.06 * this.aw(p, 'ot');
+    if (kind === 'ft' && this.aw(p, 'ftPerfect') > 1) b += 0.05;
+    if (this.bond && this.bond[p.side]) b += 0.04 * (this.players[p.side].some(q => this.aw(q, 'bond') > 1) ? 1.5 : 1);                     // ピック＆ロールのきずな
     return b;
   }
   get poss() { return this.st.poss; }
@@ -2524,7 +2527,7 @@ class Match {
     b.mode = 'pass'; b.holder = null; b.from = from; b.to = to; b.tried = new Set(); b.safe = safe;
     b.last = from.side;
     this.lastPass = { from, to, t: this.time };
-    if (this.has(from, 'assist')) to.assistUntil = this.time + 3;
+    if (this.has(from, 'assist')) to.assistUntil = this.time + 3 * this.aw(from, 'assist');
     from.face = Math.atan2(to.pos.x - from.pos.x, to.pos.z - from.pos.z);
     from.act = 'pass'; from.actT = 0;
     // パスの種類をランダムにえらぶ（遠い→オーバーヘッド、近い・間に相手→バウンドが出やすい）
@@ -2597,7 +2600,7 @@ class Match {
   shotWindow(p) {
     const easy = p.side === 0 ? clamp(1 - this.f * 0.2, 0.75, 1.25) : 1;
     const f = this.ifx(p);
-    const item = (1 + f.gauge / 100) * (this.has(p, 'eagle') ? 2 : 1); // ヘッドバンド・アイウェアなど
+    const item = (1 + f.gauge / 100) * (this.has(p, 'eagle') ? (this.aw(p, 'eagle') > 1 ? 2.5 : 2) : 1); // ヘッドバンド・アイウェアなど
     return (0.07 + (this.shotAttr(p) - 50) * 0.0012) * ({ dunk: 2.2, layup: 1.6, ft: 1.3 }[p.shotKind] || 1) * easy * item;
   }
 
@@ -2621,7 +2624,7 @@ class Match {
     let pen = kind === 'ft' ? 0 : Math.max(0, 1.6 - dd) * 0.14 * (dfd.r.def / 70) * (kind === 'dunk' ? 0.5 : 1);
     if (kind !== 'ft' && dfd.y > 0.25 && dd < 1.4) pen += 0.08;
     if (dfd.lock && dd < 1.6) pen += 0.04;
-    if (this.has(dfd, 'lockdown') && dd < 1.6) pen += 0.05;
+    if (this.has(dfd, 'lockdown') && dd < 1.6) pen += 0.05 * this.aw(dfd, 'lockdown');
     if (dfd.side === 0) pen *= DEF_BOOST;
     pen *= 1 - 0.3 * this.tired(dfd); // 守る選手が疲れていると、守りが弱くなる
     // タイミング
@@ -2645,7 +2648,7 @@ class Match {
 
     // ブロック
     const jumper = kind === 'ft' ? null : this.players[1 - side].find(q => q.y > 0.25 && d2(q.pos, p.pos) < 1.4);
-    const blk = jumper ? this.ifx(jumper).block / 150 + (this.has(jumper, 'sky') ? 0.05 : 0) : 0;
+    const blk = jumper ? this.ifx(jumper).block / 150 + (this.has(jumper, 'sky') ? 0.05 * this.aw(jumper, 'sky') : 0) : 0;
     if (jumper && rand() < (0.2 + (jumper.r.def - 60) / 150 + blk) * (three ? 0.5 : kind === 'dunk' ? 0.6 : 1) * (jumper.side === 0 ? DEF_BOOST : 1)) {
       this.box(jumper).blk++;
       this.call('ブロック！', jumper.info.name, 'BLOCK', jumper.side);
@@ -2701,8 +2704,9 @@ class Match {
     if (b.shot.kind === 'ft') return this.ftLanded(p, made);
     p.streak = made ? (p.streak || 0) + 1 : 0;
     if (made && this.has(p, 'zone') && p.streak >= 2 && !((p.zoneUntil || 0) > this.time)) {
-      p.zoneUntil = this.time + 10;
-      if (p.side === 0) setTimeout(() => this.call('ゾーン突入！', `${p.info.name}　10秒間 シュートが入りやすい`, 'ZONE', 0), 700);
+      const zs = 10 * this.aw(p, 'zone'); // ★5 で15秒
+      p.zoneUntil = this.time + zs;
+      if (p.side === 0) setTimeout(() => this.call('ゾーン突入！', `${p.info.name}　${zs}秒間 シュートが入りやすい`, 'ZONE', 0), 700);
     }
     if (made && perfect && this.has(p, 'nextThree')) p.hot3 = true;
     if (made) {
@@ -2919,7 +2923,7 @@ class Match {
     });
     if (!q) return;
     p.beatCd = 0.9;
-    const item = (this.has(p, 'beat') ? 0.08 : 0) - (this.has(q, 'shadow') ? 0.12 : 0);
+    const item = (this.has(p, 'beat') ? 0.08 * this.aw(p, 'beat') : 0) - (this.has(q, 'shadow') ? 0.12 * this.aw(q, 'shadow') : 0);
     if (rand() < clamp(0.35 + (p.r.drive - q.r.def) / 110 - (q.lock ? 0.1 : 0) + item, 0.12, 0.85)) {
       q.stun = 0.75;
       p.beatUntil = this.time + 2;
@@ -2960,7 +2964,7 @@ class Match {
     }
   }
 
-  jump(p, v = 3.6) { if (p.y <= 0.001) p.vy = v * (this.has(p, 'sky') ? 1.12 : 1); }
+  jump(p, v = 3.6) { if (p.y <= 0.001) p.vy = v * (this.has(p, 'sky') ? 1 + 0.12 * this.aw(p, 'sky') : 1); }
 
   // ---------- 毎フレーム ----------
   loop(now) {
@@ -3228,7 +3232,8 @@ class Match {
       let sp = base * (p.sprint ? 1.3 : 1) * (this.ball.holder === p ? 0.92 : 1) * (p.slow > 0 ? 0.5 : 1);
       // アイテム：速さ（%）、横浜グリーンソックスは守るときにさらに速い
       sp *= 1 + this.ifx(p).speed * 0.012;
-      if (this.has(p, 'chase') && this.ball.holder && this.ball.holder.side !== p.side) sp *= 1.08;
+      if (this.has(p, 'chase') && this.ball.holder && this.ball.holder.side !== p.side) sp *= 1 + 0.08 * this.aw(p, 'chase');
+      if (p.sprint && this.aw(p, 'driveSafe') > 1) sp *= 1.05;
       if (p.stun > 0) sp *= 0.2;
       sp *= 1 - 0.18 * this.tired(p); // 疲れると遅くなる
       const k = Math.min(1, dt * 9);
@@ -3333,10 +3338,10 @@ class Match {
           b.tried.add(q);
           if (q.stun > 0) return;
           let pc = clamp(0.18 + (q.r.def - 60) / 160 + (q.side === 1 ? this.f * 0.06 - CPU_NERF * 0.4 : 0), 0.03, 0.5);
-          pc += this.ifx(q).steal / 250 + (this.has(q, 'readPass') ? 0.08 : 0);
+          pc += this.ifx(q).steal / 250 + (this.has(q, 'readPass') ? 0.08 * this.aw(q, 'readPass') : 0);
           if (q.side === 0) pc *= DEF_BOOST;
           if (P.type === 'bounce') pc *= 1.1; // バウンドパスは遅いぶん少しだけカットされやすい
-          if (this.has(b.from, 'noCut')) pc *= 0.4;
+          if (this.has(b.from, 'noCut')) pc *= this.aw(b.from, 'noCut') > 1 ? 0.25 : 0.4;
           if (rand() < pc) { if (this.has(q, 'fastBreak')) q.fbUntil = this.time + 4; this.box(q).stl++; this.call('パスカット！', q.info.name, 'STEAL', q.side); this.fx('stop', q.side); this.give(q, true); }
         });
       }
@@ -3360,7 +3365,7 @@ class Match {
         this.all().forEach(p => {
           const d = d2(p.pos, b.pos);
           const reach = p.look.realH * 1.25 + p.y;
-          if (d < 0.55 + p.r.reb / 180 + (this.has(p, 'rebPos') ? 0.15 : 0) && b.pos.y < reach && d < bd) { bd = d; best = p; }
+          if (d < 0.55 + p.r.reb / 180 + (this.has(p, 'rebPos') ? 0.15 * this.aw(p, 'rebPos') : 0) && b.pos.y < reach && d < bd) { bd = d; best = p; }
         });
         if (best && (b.pos.y < RIM_Y - 0.3 || b.vel.y < 0)) {
           const off = best.side === this.st.poss;
