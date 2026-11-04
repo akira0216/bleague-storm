@@ -676,3 +676,44 @@ body.playing { overflow: hidden; }
 .upd-bar .go { background: #25c868; color: #06130b; font-weight: 900; }
 .upd-bar .later { background: transparent; color: #9aa3b5; padding: 8px 6px; font-weight: 500; }
 @keyframes updIn { from { transform: translate(-50%, 30px); opacity: 0; } }
+
+/* ===== 選手交代と疲れ ===== */
+/* チーム画面の「⇄ 交代」ボタン（カードの右下） */
+.pcard-wrap { position: relative; display: grid; }
+.pcard-wrap .pcard { padding-bottom: 34px; }
+.swap-btn { position: absolute; right: 8px; bottom: 7px; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 700; background: var(--panel-2); border: 1px solid var(--gold); color: var(--gold); }
+.swap-h { margin: 0 40px 4px 0; font-size: 18px; }
+.swap-h small { color: var(--mute); font-size: 12px; font-weight: 400; }
+.swap-list { display: grid; gap: 6px; }
+.swap-row { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--edge); text-align: left; }
+.swap-row.same { border-color: var(--gold); }
+.swap-row .nm { display: grid; min-width: 0; }
+.swap-row .nm b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swap-row .nm small { color: var(--mute); font-size: 12px; }
+.swap-row .ovr { font-family: var(--f-num); font-size: 24px; color: var(--led); }
+
+/* 疲れのバー（緑 → 黄 → 赤） */
+.stm { display: block; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, .15); overflow: hidden; }
+.stm > i { display: block; height: 100%; background: #36d69a; transition: width .4s; }
+.stm.mid > i { background: #ffd23f; }
+.stm.low > i { background: #ff5a4f; }
+.m3d-scard .stm { width: 100%; height: 3px; margin-top: 1px; }
+
+/* 一時停止メニューの「選手交代」 */
+.m3d-subs { display: none; text-align: left; }
+.m3d-menu.subs-open .m3d-subs { display: grid; gap: 6px; }
+.sub-hint { margin: 0; font-size: 12px; color: var(--mute); }
+.sub-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sub-cols > div { display: grid; gap: 4px; align-content: start; }
+.sub-cols h3 { margin: 0; font-size: 13px; color: var(--mute); }
+.sub-row { display: grid; grid-template-columns: 2.6em 1fr auto; grid-template-rows: auto auto; column-gap: 6px; row-gap: 3px; align-items: center; padding: 6px 8px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--edge); text-align: left; font-size: 12px; }
+.sub-row .pos { color: var(--mute); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-row .nm { display: grid; min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub-row .nm small { color: var(--gold); font-weight: 400; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.sub-row b { font-family: var(--f-num); font-size: 18px; color: var(--led); }
+.sub-row .stm { grid-column: 1 / -1; }
+.sub-row.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
+.sub-row.pend { border-color: var(--gold); }
+.sub-row:disabled { opacity: .45; }
+.sub-row.used { opacity: .3; }
+@media (max-width: 420px) { .sub-cols { grid-template-columns: 1fr; } }

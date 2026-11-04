@@ -12,7 +12,12 @@ const LEN = 14, WID = 7.5;  // コートの半分の長さ・幅
 const CPU_NERF = 0.2;       // CPUをどのレベルでも全体に弱くする（能力 −14%、シュート −8% など）
 const VIS = 1.2;            // 見やすいように選手を大きく描く（判定は本当の身長のまま）
 const POS_H = { PG: 1.84, SG: 1.92, SF: 1.98, PF: 2.04, C: 2.1 };
-const DEF_BOOST = 1.3;      // 自分のチームが守るときの スティール・パスカット・シュートの守り・ブロック の強さ
+const DEF_BOOST = 1.3;
+const SLOTS5 = ['PG', 'SG', 'SF', 'PF', 'C'];
+const escH = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// 疲れ：コートにいると減り、ベンチで休むと回復する（100 が元気）。1クォーターでふつうに動いて −30 くらい
+const TIRE_DRAIN = 0.8, TIRE_REST = 1.0;
+const BOX0 = () => ({ pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, p3m: 0, p3a: 0 });      // 自分のチームが守るときの スティール・パスカット・シュートの守り・ブロック の強さ
 const CPU_INSIDE = { dunk: 0.10, layup: 0.06 }; // CPUのダンク・レイアップを入りにくくする分（強さ5でちょうどこの分）
 const PERFECT = 1.0;       // シュートゲージのいちばん上（ここで離すとパーフェクト）
 const FILL_TIME = 0.68;     // ゲージがいちばん上まで溜まる時間（秒）
@@ -1878,6 +1883,10 @@ class Match {
     this.firstPoss = this.st.poss;
     this.f = ((o.cpuLv || 5) - 5) / 4;
     this.teamFouls = [0, 0];
+    // ベンチの選手（交代用）と、ベンチの選手の疲れ（pid → 0〜100）
+    this.bench = [(o.bench && o.bench[0]) || [], (o.bench && o.bench[1]) || []].map(a => a.slice());
+    this.stam = { ...((o.resume && o.resume.stam) || {}) };
+    this.subs = []; // 交代の予約 { side, i, info }
     if (o.resume) {
       // 中断した試合のつづき
       this.firstPoss = o.resume.firstPoss;
@@ -1957,12 +1966,16 @@ class Match {
       const kit = kits[side];
       const jc = kit ? kit.base : side === 0 ? c0 : c1;
       const fg = kit ? kit.num : new THREE.Color(jc).getHSL({}).l > 0.62 ? (side === 0 ? '#1b1d22' : (n1 === '#ffffff' ? '#1b1d22' : n1)) : (side === 0 ? '#ffffff' : n1);
-      const look = buildPlayer({ ...info, pid: info.pid }, jc, fg, faces[side * 5 + i], side === 0 ? c0 : '#' + k1.getHexString(), kit);
+      const badgeC = side === 0 ? c0 : '#' + k1.getHexString();
+      (this.kitInfo = this.kitInfo || [])[side] = { jc, fg, badge: badgeC, kit };
+      const look = buildPlayer({ ...info, pid: info.pid }, jc, fg, faces[side * 5 + i], badgeC, kit);
       if (models[side * 5 + i]) attachModel(look, models[side * 5 + i], look.sty);
       this.scene.add(look.root);
-      const r = side === 1 ? Object.fromEntries(Object.entries(info.r).map(([k, v]) => [k, clamp(Math.round(v * (1 - CPU_NERF * 0.7 + this.f * 0.07)), 30, 99)])) : info.r;
+      const r = this.rateOf(side, info);
+      const stam = this.stamOf(info.pid);
+      delete this.stam[info.pid];
       return {
-        side, i, info, look, r,
+        side, i, info, look, r, stam,
         pos: { x: 0, z: 0 }, vel: { x: 0, z: 0 }, tgt: null, y: 0, vy: 0, face: 0, phase: rand() * 6,
         stun: 0, slow: 0, act: null, actT: 0, cd: 0, think: 0, goal: null, sprint: false, beatCd: 0,
       };
@@ -1981,7 +1994,8 @@ class Match {
       this.all().forEach(p => this.animate(p, 0));
       this.updateBall(0);
     }
-    if (SFX) { SFX.startCrowd(); SFX.startBgm(); }
+    this.bgmMode = this.st.poss === 0 ? 'off' : 'def';
+    if (SFX) { SFX.startCrowd(); SFX.startBgm(this.bgmMode); }
     this.resize();
     this.loop = this.loop.bind(this);
     this.last = performance.now();
@@ -2022,6 +2036,8 @@ class Match {
       <div class="m3d-menu"><div>
         <h2>一時停止</h2>
         <button class="btn primary" data-m="resume">再開</button>
+        <button class="btn" data-m="subs">選手交代</button>
+        <div class="m3d-subs"></div>
         <button class="btn" data-m="help">操作説明</button>
         <button class="btn" data-m="suspend">中断して、あとで再開</button>
         <button class="btn" data-m="quit">試合をやめる</button>
@@ -2101,6 +2117,7 @@ class Match {
     this.el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       if (b.dataset.m === 'resume') this.pause(false);
       else if (b.dataset.m === 'help') this.ui.menu.classList.toggle('help-open');
+      else if (b.dataset.m === 'subs') { this.subSel = null; this.ui.menu.classList.toggle('subs-open'); this.renderSubs(); }
       else if (b.dataset.m === 'suspend') { this.save(); this.destroy(); this.o.onSuspend(); }
       else { this.destroy(); this.o.onQuit(); }
     });
@@ -2131,6 +2148,7 @@ class Match {
     this.o.onSave({
       score: [...st.score], q: st.q, clock: st.clock, qLen: st.qLen, qScores: st.qScores.map(x => [...x]),
       box: JSON.parse(JSON.stringify(st.box)), poss: st.poss, firstPoss: this.firstPoss, teamFouls: [...this.teamFouls],
+      stam: { ...this.stam, ...Object.fromEntries(this.all().map(q => [q.info.pid, Math.round(q.stam)])) },
     });
   }
 
@@ -2167,7 +2185,7 @@ class Match {
 
   pause(on) {
     this.paused = on;
-    if (!on) this.ui.menu.classList.remove('help-open');
+    if (!on) this.ui.menu.classList.remove('help-open', 'subs-open');
     this.ui.menu.classList.toggle('open', on);
     if (!on) this.last = performance.now();
   }
@@ -2244,6 +2262,129 @@ class Match {
 
   // ---------- ルール ----------
   all() { return this.players[0].concat(this.players[1]); }
+
+  // CPU の選手は能力を下げる（どのレベルでも全体に弱く）
+  rateOf(side, info) {
+    return side === 1 ? Object.fromEntries(Object.entries(info.r).map(([k, v]) => [k, clamp(Math.round(v * (1 - CPU_NERF * 0.7 + this.f * 0.07)), 30, 99)])) : info.r;
+  }
+
+  // ---------- 疲れと選手交代 ----------
+  stamOf(pid) { return this.stam[pid] === undefined ? 100 : this.stam[pid]; }
+  // 疲れぐあい 0（元気）〜1（へとへと）。65 を下回ると効きはじめる
+  tired(p) { return p ? clamp((65 - p.stam) / 65, 0, 1) : 0; }
+
+  tire(dt) {
+    const q = 60 / Math.max(60, this.st.qLen); // クォーターが短いときは早く疲れる（1クォーターあたりは同じくらい）
+    const live = this.state === 'play';
+    this.all().forEach(p => {
+      const spd = Math.hypot(p.vel.x, p.vel.z);
+      const eff = live ? 0.35 + Math.min(1.3, spd / 5) + (p.sprint ? 0.5 : 0) + (p.y > 0 ? 0.6 : 0) : 0.1;
+      p.stam = clamp(p.stam - eff * TIRE_DRAIN * q * dt, 0, 100);
+      if (p.side === 0 && p.stam < 35 && !p.warned && live) {
+        p.warned = true;
+        this.call('つかれています', `${p.info.name}　Ⅱ →「選手交代」で休ませよう`, 'TIRED', 0);
+      }
+      if (p.stam > 55) p.warned = false;
+    });
+    Object.keys(this.stam).forEach(pid => { this.stam[pid] = Math.min(100, this.stam[pid] + TIRE_REST * q * dt); });
+    // 得点カードの疲れのバー（0.5秒ごと）
+    this.stamT = (this.stamT || 0) + dt;
+    if (this.stamT > 0.5 && this.rows) {
+      this.stamT = 0;
+      this.all().forEach(p => {
+        const r = this.rows[p.info.pid];
+        const bar = r && r.querySelector('.stm');
+        if (!bar) return;
+        bar.firstChild.style.width = Math.round(p.stam) + '%';
+        bar.className = 'stm' + (p.stam < 40 ? ' low' : p.stam < 65 ? ' mid' : '');
+      });
+    }
+  }
+
+  // CPU：疲れた選手を、元気なベンチの選手と交代（ボールが止まったとき）
+  autoSubs(side) {
+    const bench = this.bench[side];
+    const fit = (q, i) => (q.pos.split('/').includes(SLOTS5[i]) ? 1 : 0);
+    this.players[side].forEach((p, i) => {
+      if (p.stam > 48 || this.subs.some(s => s.side === side && s.i === i)) return;
+      const pick = bench.filter(q => this.stamOf(q.pid) > 80 && !this.subs.some(s => s.info.pid === q.pid))
+        .sort((a, b) => (fit(b, i) - fit(a, i)) || (b.r.ovr - a.r.ovr))[0];
+      if (pick) this.subs.push({ side, i, info: pick });
+    });
+  }
+
+  // 予約した交代は、ボールが止まっているとき（得点のあと・スローインの前・クォーターの間など）に行う
+  trySubs() {
+    if (this.subBusy || !this.subs.length || this.ended || this.stopped) return;
+    if (this.state !== 'dead' && this.state !== 'throwin') return;
+    const s = this.subs.shift();
+    this.subBusy = true;
+    this.swap(s.side, s.i, s.info).catch(e => console.warn(e)).finally(() => { this.subBusy = false; this.trySubs(); });
+  }
+
+  async swap(side, i, info) {
+    const bench = this.bench[side];
+    if (!bench.some(q => q.pid === info.pid)) return;
+    const face = await loadFace(this.o.faceOf(info.pid), this.o.faceHiOf && this.o.faceHiOf(info.pid));
+    const K = this.kitInfo[side];
+    const look = buildPlayer({ ...info }, K.jc, K.fg, face, K.badge, K.kit);
+    const sty = STYLES[info.pid];
+    if (sty && sty.model) { const m = await loadModel(sty.model); if (m) attachModel(look, m, look.sty); }
+    if (this.stopped) return;
+    const j = bench.findIndex(q => q.pid === info.pid);
+    if (j < 0) return;
+    const p = this.players[side][i];
+    const old = p.info;
+    this.scene.remove(p.look.root);
+    this.scene.add(look.root);
+    bench.splice(j, 1, old);
+    this.stam[old.pid] = p.stam;
+    // 同じ選手の入れものを使いまわす（ボールを持っていても、位置や役わりはそのまま）
+    p.info = info; p.look = look; p.r = this.rateOf(side, info); p.stam = this.stamOf(info.pid);
+    delete this.stam[info.pid];
+    p.warned = false; p.zoneUntil = 0; p.hot3 = false;
+    this.st.sides[side].players[i] = info;
+    if (!this.st.box[side][info.pid]) this.st.box[side][info.pid] = BOX0();
+    this.bond = [0, 1].map(sd => this.players[sd].some(q => this.has(q, 'bond')) && this.players[sd].some(q => ['m45', 'm80'].includes(q.info.pid)));
+    this.scorersDirty = true;
+    this.animate(p, 0);
+    this.call('選手交代', `${old.name} → ${info.name}`, 'SUB', side);
+    if (this.ui.menu.classList.contains('subs-open')) this.renderSubs();
+  }
+
+  // 一時停止メニューの「選手交代」：コートの選手 → ベンチの選手 の順にタップ
+  renderSubs() {
+    const box = this.ui.menu.querySelector('.m3d-subs');
+    if (!this.ui.menu.classList.contains('subs-open')) { box.innerHTML = ''; return; }
+    const bar = v => `<i class="stm${v < 40 ? ' low' : v < 65 ? ' mid' : ''}"><i style="width:${Math.round(v)}%"></i></i>`;
+    const pend = this.subs.filter(x => x.side === 0);
+    const sel = this.subSel;
+    const bench = this.bench[0];
+    box.innerHTML = `
+      <p class="sub-hint">${sel == null ? '① 下げる選手（コート）をタップ' : '② 入れる選手（ベンチ）をタップ'}　…ボールが止まったときに交代します</p>
+      <div class="sub-cols">
+        <div><h3>コート</h3>${this.players[0].map((p, i) => { const pd = pend.find(x => x.i === i); return `
+          <button class="sub-row${sel === i ? ' sel' : ''}${pd ? ' pend' : ''}" data-ci="${i}"><span class="pos">${SLOTS5[i]}</span>
+            <span class="nm">${escH(p.info.name)}${pd ? `<small>→ ${escH(pd.info.name)}（タップで取り消し）</small>` : ''}</span><b>${p.r.ovr}</b>${bar(p.stam)}</button>`; }).join('')}</div>
+        <div><h3>ベンチ</h3>${bench.length ? bench.map((q, j) => { const used = pend.some(x => x.info.pid === q.pid); return `
+          <button class="sub-row${used ? ' used' : ''}" data-bi="${j}" ${sel == null || used ? 'disabled' : ''}><span class="pos">${escH(q.pos)}</span>
+            <span class="nm">${escH(q.name)}</span><b>${q.r.ovr}</b>${bar(this.stamOf(q.pid))}</button>`; }).join('') : '<p class="sub-hint">ベンチに選手がいません</p>'}</div>
+      </div>`;
+    box.querySelectorAll('[data-ci]').forEach(b => b.onclick = () => {
+      const i = +b.dataset.ci;
+      const k = this.subs.findIndex(x => x.side === 0 && x.i === i);
+      if (k >= 0) { this.subs.splice(k, 1); this.subSel = null; } else this.subSel = this.subSel === i ? null : i;
+      this.renderSubs();
+    });
+    box.querySelectorAll('[data-bi]').forEach(b => b.onclick = () => {
+      if (this.subSel == null) return;
+      this.subs.push({ side: 0, i: this.subSel, info: bench[+b.dataset.bi] });
+      this.subSel = null;
+      this.renderSubs();
+      this.trySubs();
+    });
+  }
+
 
   // アイテムの効果（自分の選手だけ。CPU はなし）
   ifx(p) { return (p && p.info.fx) || NO_FX; }
@@ -2482,6 +2623,7 @@ class Match {
     if (dfd.lock && dd < 1.6) pen += 0.04;
     if (this.has(dfd, 'lockdown') && dd < 1.6) pen += 0.05;
     if (dfd.side === 0) pen *= DEF_BOOST;
+    pen *= 1 - 0.3 * this.tired(dfd); // 守る選手が疲れていると、守りが弱くなる
     // タイミング
     const val = p.actT / FILL_TIME;
     const w = this.shotWindow(p);
@@ -2493,7 +2635,7 @@ class Match {
     else if (err < w * 2.4) { bonus = -0.06; grade = val < PERFECT ? 'ちょっと早い' : 'ちょっと遅い'; }
     else { bonus = -0.22; grade = val < PERFECT ? '早すぎ！' : '遅すぎ！'; }
     if (side === 1) bonus += this.f * 0.04 - CPU_NERF * 0.4;
-    const prob = clamp(base - pen + bonus + this.itemShotBonus(p, kind, three), 0.03, 0.95);
+    const prob = clamp(base - pen + bonus + this.itemShotBonus(p, kind, three) - 0.12 * this.tired(p), 0.03, 0.95);
     if (side === 0 && p === this.ctrl) this.pop(grade, err < w * 1.3 ? 'ok' : 'ng');
 
     const bs = this.box(p);
@@ -2610,7 +2752,7 @@ class Match {
       this.ui['sc' + side].innerHTML = this.players[side].map(q => {
         const pid = q.info.pid;
         if (this.shown[pid] === undefined) this.shown[pid] = this.box(q).pts;
-        return `<div class="srow" data-pid="${pid}"><span class="nm">${q.info.no} ${shortName(q.info.name)}</span><b>${this.shown[pid]}</b></div>`;
+        return `<div class="srow" data-pid="${pid}"><span class="nm">${q.info.no} ${shortName(q.info.name)}</span><b>${this.shown[pid]}</b><i class="stm"><i style="width:${Math.round(q.stam)}%"></i></i></div>`;
       }).join('');
     });
     this.rows = {};
@@ -2798,6 +2940,7 @@ class Match {
     let p = clamp(0.1 + (d.r.def - (h.r.pass + h.r.drive) / 2) / 220 + (d.side === 1 ? this.f * 0.04 - CPU_NERF * 0.3 : 0), 0.02, 0.4)
       + this.ifx(d).steal / 200;
     if (d.side === 0) p *= DEF_BOOST;
+    p *= 1 - 0.3 * this.tired(d); // 疲れているとスティールしにくい
     if (rand() < p) {
       if (this.has(d, 'fastBreak')) d.fbUntil = this.time + 4;
       this.box(d).stl++;
@@ -2877,6 +3020,17 @@ class Match {
     this.handleInput(dt);
     this.all().forEach(p => this.think(p, dt));
     this.move(dt);
+    this.tire(dt);
+    if (this.state === 'dead' || this.state === 'throwin') {
+      if (!this.subChecked) { this.subChecked = true; this.autoSubs(1); }
+      this.trySubs();
+    } else this.subChecked = false;
+    // BGM：ボールを持っているチームでオフェンス／ディフェンスの曲を切りかえる（0.5秒つづいたら）
+    const want = this.st.poss === 0 ? 'off' : 'def';
+    if (want !== this.bgmMode) {
+      this.bgmT = (this.bgmT || 0) + dt;
+      if (this.bgmT > 0.5) { this.bgmMode = want; this.bgmT = 0; if (SFX && SFX.setBgmMode) SFX.setBgmMode(want); }
+    } else this.bgmT = 0;
     this.updateBall(dt);
     this.all().forEach(p => this.animate(p, dt));
   }
@@ -2894,6 +3048,9 @@ class Match {
     }
     st.q++;
     st.clock = st.q > 4 ? 60 : st.qLen;
+    // クォーターの間の休けい：コートの選手 +10、ベンチ +30
+    this.all().forEach(p => { p.stam = Math.min(100, p.stam + 10); });
+    Object.keys(this.stam).forEach(pid => { this.stam[pid] = Math.min(100, this.stam[pid] + 30); });
     if (st.q <= 4) this.teamFouls = [0, 0];
     st.qScores.push([...st.score]);
     this.call(st.q > 4 ? '延長戦！' : `第${st.q}クォーター`, `${st.sides[0].team.short} ${st.score[0]} - ${st.score[1]} ${st.sides[1].team.short}`, st.q > 4 ? 'OT' : `Q${st.q}`);
@@ -3073,6 +3230,7 @@ class Match {
       sp *= 1 + this.ifx(p).speed * 0.012;
       if (this.has(p, 'chase') && this.ball.holder && this.ball.holder.side !== p.side) sp *= 1.08;
       if (p.stun > 0) sp *= 0.2;
+      sp *= 1 - 0.18 * this.tired(p); // 疲れると遅くなる
       const k = Math.min(1, dt * 9);
       p.vel.x += (dx * sp - p.vel.x) * k;
       p.vel.z += (dz * sp - p.vel.z) * k;

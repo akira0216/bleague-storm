@@ -336,12 +336,46 @@
     const lineup = S.lineup();
     $app.innerHTML = `
       ${header('チーム・育成')}
-      <p class="hint">選手をタップすると、育成やスタメンの入れかえができます。</p>
+      <p class="hint">選手をタップすると育成ができます。「⇄ 交代」で、だれと入れかえるかを選べます。</p>
       <h2 class="sec">スタメン</h2>
-      <div class="cards">${lineup.map(card).join('')}</div>
+      <div class="cards">${lineup.map(id => `<div class="pcard-wrap">${card(id)}<button class="swap-btn" data-swap="${id}">⇄ 交代</button></div>`).join('')}</div>
       <h2 class="sec">ベンチ（${ids.length - lineup.length}人）</h2>
-      <div class="cards">${ids.filter(id => !lineup.includes(id)).map(card).join('')}</div>`;
+      <div class="cards">${ids.filter(id => !lineup.includes(id)).map(id => `<div class="pcard-wrap">${card(id)}<button class="swap-btn" data-swap="${id}">⇄ スタメンへ</button></div>`).join('')}</div>`;
     bind();
+    $app.querySelectorAll('[data-swap]').forEach(b => b.onclick = () => openSwap(b.dataset.swap));
+  }
+
+  // 交代する相手を選ぶ：スタメンならベンチの選手から、ベンチの選手ならスタメンから
+  function openSwap(id) {
+    const ids = S.lineup();
+    const isStarter = ids.includes(id);
+    const p = S.playerById[id];
+    const cands = (isStarter ? S.ownedIds().filter(x => !ids.includes(x)) : ids)
+      .map(x => ({ x, same: S.playerById[x].mainPos === p.mainPos, ovr: S.rating(x).ovr }))
+      .sort((a, b) => (b.same - a.same) || (b.ovr - a.ovr));
+    if (!cands.length) return toast('ベンチに選手がいません');
+    const dlg = document.getElementById('dlg');
+    dlg.innerHTML = `
+      <div class="sheet">
+        <button class="close" aria-label="とじる">×</button>
+        <h2 class="swap-h">${esc(p.name)} <small>${esc(p.pos)} ・ OVR ${S.rating(id).ovr}</small></h2>
+        <p class="hint">${isStarter ? 'かわりにスタメンに入れる選手を選んでください（同じポジションが上）' : 'ベンチにさげるスタメンを選んでください（同じポジションが上）'}</p>
+        <div class="swap-list">${cands.map(c => { const q = S.playerById[c.x]; return `
+          <button class="swap-row${c.same ? ' same' : ''}" data-to="${c.x}">${photo(q, 'sm')}
+            <span class="nm"><b>${esc(q.name)}</b><small>${esc(q.pos)}${c.same ? ' ・ 同じポジション' : ''}</small></span>
+            <b class="ovr">${c.ovr}</b></button>`; }).join('')}</div>
+      </div>`;
+    dlg.classList.add('open');
+    dlg.querySelector('.close').onclick = closeDlg;
+    dlg.onclick = e => { if (e.target === dlg) closeDlg(); };
+    dlg.querySelectorAll('[data-to]').forEach(b => b.onclick = () => {
+      const to = b.dataset.to;
+      const [out, inn] = isStarter ? [id, to] : [to, id];
+      S.data.lineup = S.lineup().map(x => (x === out ? inn : x));
+      S.save();
+      toast(`${S.playerById[inn].name} がスタメンに入りました（${S.playerById[out].name} はベンチへ）`);
+      closeDlg();
+    });
   }
 
   function card(id) {
@@ -403,7 +437,7 @@
           <div class="eqlist">${S.equipOf(id).map(iid => itemCard(iid, { owner: null, cls: 'mini', extra: `<button class="eq-x" data-unequip="${iid}" aria-label="外す">×</button>` })).join('')}
             ${S.equipOf(id).length < 5 ? '<button class="eq-add" id="eqAdd">＋<small>つける</small></button>' : ''}</div>
         </div>` : ''}
-        ${o ? `<button class="btn wide" id="toggleStarter">${isStarter ? 'ベンチにさげる' : 'スタメンに入れる'}</button>` : ''}
+        ${o ? `<button class="btn wide" id="toggleStarter">${isStarter ? '⇄ 交代する（ベンチの選手を選ぶ）' : '⇄ スタメンに入れる（交代する選手を選ぶ）'}</button>` : ''}
       </div>`;
     dlg.classList.add('open');
     dlg.querySelector('.close').onclick = closeDlg;
@@ -419,26 +453,7 @@
     const ea = document.getElementById('eqAdd');
     if (ea) ea.onclick = () => openItemPicker(id);
     const tg = document.getElementById('toggleStarter');
-    if (tg) tg.onclick = () => {
-      let ids = S.data.lineup;
-      if (isStarter) {
-        // 同じポジションでいちばんOVRが高いベンチ選手と入れかえ
-        const bench = S.ownedIds().filter(x => !ids.includes(x));
-        if (!bench.length) return toast('ベンチに選手がいません');
-        const sub = bench.find(x => S.playerById[x].mainPos === p.mainPos) || bench[0];
-        S.data.lineup = ids.map(x => (x === id ? sub : x));
-        toast(`${S.playerById[sub].name} がスタメンに入りました`);
-      } else {
-        // いちばんOVRが低いスタメンと入れかえ（同じポジションがいればそちら）
-        const same = ids.find(x => S.playerById[x].mainPos === p.mainPos);
-        const out = same || ids.slice().sort((a, b) => S.rating(a).ovr - S.rating(b).ovr)[0];
-        S.data.lineup = ids.map(x => (x === out ? id : x));
-        toast(`${S.playerById[out].name} と入れかえました`);
-      }
-      S.save();
-      closeDlg();
-      render();
-    };
+    if (tg) tg.onclick = () => openSwap(id);
   }
   function closeDlg() { const d = document.getElementById('dlg'); d.classList.remove('open'); d.innerHTML = ''; render(); }
 
@@ -665,6 +680,9 @@
           <li>それ以外のファウル・アウト・24秒は<b>スローイン</b>。自分のチームのときは「スローイン」ボタンでパスを入れます。</li>
           <li>チームファウル（得点ボードの F の数字）が5つ目からは、シュート中でなくても<b>フリースロー1本</b>。F4 から赤くなります。</li>
         </ul></section>
+      <section><h3>🔄 疲れと選手交代</h3>
+        <p>コートにいる選手はだんだん疲れます（得点カードの下の<b>バー</b>：緑→黄→赤）。疲れると足がおそくなり、シュートや守りも少し弱くなります。ベンチで休むと回復します。</p>
+        <p>左上の「Ⅱ」→「<b>選手交代</b>」で、下げる選手 → 入れる選手 の順にタップ。ボールが止まったとき（得点のあと・スローインの前など）に交代します。相手のチームも疲れたら交代します。</p></section>
       <section><h3>⏸ 中断と再開</h3>
         <p>試合中に左上の「Ⅱ」→「中断して、あとで再開」で、試合をとちゅうで止められます。アプリを閉じてしまっても、ホームの「再開する」でつづきから遊べます。</p></section>
       <section><h3>⌨️ パソコンのキー</h3>
@@ -719,7 +737,7 @@
     if (me.players.length < 5) { alert('選手がそろわないので再開できません'); delete S.data.suspended; S.save(); return render(); }
     const st = Game.create(me, cpu, sv.qLen / 60);
     Object.assign(st, { score: sv.score, q: sv.q, clock: sv.clock, qScores: sv.qScores, poss: sv.poss });
-    [0, 1].forEach(sd => Object.keys(st.box[sd]).forEach(pid => { if (sv.box[sd][pid]) st.box[sd][pid] = sv.box[sd][pid]; }));
+    [0, 1].forEach(sd => Object.keys(sv.box[sd] || {}).forEach(pid => { st.box[sd][pid] = sv.box[sd][pid]; }));
     match = { st, free: sv.free, opp, resume: { firstPoss: sv.firstPoss, teamFouls: sv.teamFouls } };
     go('match');
   }
@@ -731,9 +749,16 @@
     if (!window.Match3D) await new Promise(r => window.addEventListener('match3d-ready', r, { once: true }));
     if (match !== m) return;
     const end = () => document.body.classList.remove('playing');
+    // ベンチの選手（交代用）：自分は持っている選手のうちコートにいない人、CPU はチームの上位10人のうちコートにいない人
+    const onCourt = sd => m.st.sides[sd].players.map(p => p.pid);
+    const bench = [
+      sideOf(S.ownedIds().filter(id => !onCourt(0).includes(id)), myTeam(), true, true).players,
+      sideOf(m.opp.players.slice(0, 10).map(p => p.id).filter(id => !onCourt(1).includes(id)), m.opp, false, true).players,
+    ];
     m.ctrl = await Match3D.start({
       el: document.getElementById('m3d'),
       st: m.st,
+      bench,
       cpuLv: S.data.cpuLv,
       faceOf: pid => S.playerById[pid].photo,
       faceHiOf: pid => S.playerById[pid].face,
@@ -760,13 +785,13 @@
     S.data.coins += coins;
     const box = st.box[0];
     const lvUps = [];
-    const lineup = st.sides[0].players.map(p => p.pid);
+    const played = Object.keys(box); // 出場した選手（交代で入った選手も）
     Object.entries(box).forEach(([pid, b]) => {
       const xp = Math.round((25 + b.pts * 1.5 + b.reb + b.ast * 2 + b.stl * 2 + b.blk * 2) * (win ? 1.3 : 1));
       b.xp = xp;
       if (S.addXp(pid, xp)) lvUps.push(pid);
     });
-    S.ownedIds().filter(id => !lineup.includes(id)).forEach(id => { if (S.addXp(id, 12)) lvUps.push(id); });
+    S.ownedIds().filter(id => !played.includes(id)).forEach(id => { if (S.addXp(id, 12)) lvUps.push(id); });
     if (!free) {
       const sea = S.data.season;
       record(S.data.fav, opp.id, st.score[0], st.score[1]);
@@ -777,11 +802,12 @@
     S.data.history = S.data.history.slice(0, 30);
     S.save();
 
-    const all = [0, 1].flatMap(sd => st.sides[sd].players.map(p => ({ p, b: st.box[sd][p.pid], sd })));
+    const who = sd => Object.keys(st.box[sd]).map(pid => ({ pid, name: S.playerById[pid] ? S.playerById[pid].name : pid }));
+    const all = [0, 1].flatMap(sd => who(sd).map(p => ({ p, b: st.box[sd][p.pid], sd })));
     const mvp = all.filter(x => x.sd === (win ? 0 : 1))
       .sort((a, b) => (b.b.pts + b.b.reb + b.b.ast * 1.5) - (a.b.pts + a.b.reb + a.b.ast * 1.5))[0];
     const tbl = sd => `<table class="box"><thead><tr><th>選手</th><th>PTS</th><th>RB</th><th>AST</th><th>STL</th><th>FG</th><th>3P</th>${sd === 0 ? '<th>XP</th>' : ''}</tr></thead>
-      <tbody>${st.sides[sd].players.map(p => { const b = st.box[sd][p.pid]; return `<tr><td>${esc(p.name)}</td><td><b>${b.pts}</b></td><td>${b.reb}</td><td>${b.ast}</td><td>${b.stl}</td><td>${b.fgm}/${b.fga}</td><td>${b.p3m}/${b.p3a}</td>${sd === 0 ? `<td>+${b.xp}</td>` : ''}</tr>`; }).join('')}</tbody></table>`;
+      <tbody>${who(sd).map(p => { const b = st.box[sd][p.pid]; return `<tr><td>${esc(p.name)}</td><td><b>${b.pts}</b></td><td>${b.reb}</td><td>${b.ast}</td><td>${b.stl}</td><td>${b.fgm}/${b.fga}</td><td>${b.p3m}/${b.p3a}</td>${sd === 0 ? `<td>+${b.xp}</td>` : ''}</tr>`; }).join('')}</tbody></table>`;
     const qs = st.qScores.map((s, i) => [s[0] - (i ? st.qScores[i - 1][0] : 0), s[1] - (i ? st.qScores[i - 1][1] : 0)]);
 
     $app.innerHTML = `

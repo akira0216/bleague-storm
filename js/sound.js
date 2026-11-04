@@ -1,5 +1,5 @@
 // 試合の音（音声ファイルは使わず、ブラウザの中で音を作る）
-// BGM（ビートの効いたループ）、観客のざわめき・歓声・ため息、ドリブル、ネット、リング、笛、ブザー
+// BGM（オフェンスとディフェンスで2曲のビート）、観客のざわめき・歓声・ため息、ドリブル、ネット、リング、笛、ブザー
 window.Sound = (() => {
   let ctx = null;
   let master = null;
@@ -383,17 +383,22 @@ window.Sound = (() => {
     s.start(t, Math.random()); s.stop(t + len + 0.05);
   }
 
-  // ---------- BGM（アリーナ向けのトラップ／ヒップホップ風ビート。100BPM・16小節） ----------
+  // ---------- BGM（オフェンスとディフェンスで2曲。どちらも16小節のループ） ----------
+  // オフェンス：128BPM・明るくノリのよいビート（4つ打ち＋裏のハイハット＋ブラス）
+  // ディフェンス：120BPM・低音がきいた、きんちょう感のあるビート（はねたキック＋16分のシンセ）
   // 曲の流れ：0〜3小節 ビートとベース → 4〜7 全部入り → 8〜11 少し落として盛り上げ → 12〜15 全部入り＋メロディ
-  const BPM = 100;
-  const SX = 60 / BPM / 4; // 16分音符ひとつ分（秒）
   const midi = n => 440 * Math.pow(2, (n - 69) / 12);
-  // Cm - A♭ - E♭ - B♭（暗めでかっこいい進行）
-  const CHORDS = [[60, 63, 67], [56, 60, 63], [55, 58, 63], [58, 62, 65]];
-  const ROOT = [36, 32, 39, 34];
+  const SONGS = {
+    off: { vol: 1.4, bpm: 128, chords: [[57, 60, 64], [57, 60, 65], [55, 60, 64], [55, 59, 62]], root: [33, 29, 36, 31] }, // Am - F - C - G
+    def: { vol: 0.5, bpm: 120, chords: [[62, 65, 69], [58, 62, 65], [55, 58, 62], [57, 61, 64]], root: [38, 34, 31, 33] }, // Dm - B♭ - Gm - A
+  };
+  const sxOf = mode => 60 / SONGS[mode].bpm / 4; // 16分音符ひとつ分（秒）
 
   // 音を作るしくみ（ふつうの再生と、録音用の OfflineAudioContext の両方で使えるよう、ctx を受け取る）
-  function bgmEngine(c, out) {
+  function bgmEngine(c, out, mode) {
+    const song = SONGS[mode];
+    const SX = sxOf(mode);
+    const CHORDS = song.chords, ROOT = song.root;
     const nb = c.createBuffer(1, c.sampleRate, c.sampleRate);
     const nd = nb.getChannelData(0);
     for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
@@ -413,31 +418,31 @@ window.Sound = (() => {
     // 808 をひずませて太くする
     const shaper = c.createWaveShaper();
     const cv = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) cv[i] = Math.tanh((i / 512 - 1) * 2.4);
+    for (let i = 0; i < 1024; i++) cv[i] = Math.tanh((i / 512 - 1) * (mode === 'def' ? 3 : 2.2));
     shaper.curve = cv;
-    const sub = amp(0.55);
-    shaper.connect(bq('lowpass', 900, 0.5)).connect(sub).connect(out);
+    const sub = amp(mode === 'def' ? 0.6 : 0.5);
+    shaper.connect(bq('lowpass', mode === 'def' ? 750 : 1000, 0.5)).connect(sub).connect(out);
     // パッドはキックのたびに音量が下がって「うねる」（サイドチェイン）
     const padBus = amp(1);
-    const padLp = bq('lowpass', 1400, 0.7);
+    const padLp = bq('lowpass', mode === 'def' ? 950 : 1700, 0.7);
     padBus.connect(padLp);
     padLp.connect(out);
     padLp.connect(rv);
     const duck = t => {
       padBus.gain.cancelScheduledValues(t);
-      padBus.gain.setValueAtTime(0.25, t);
+      padBus.gain.setValueAtTime(0.2, t);
       padBus.gain.linearRampToValueAtTime(1, t + SX * 3);
     };
 
     function kick(t, v = 1) {
       const o = c.createOscillator();
-      o.frequency.setValueAtTime(170, t);
-      o.frequency.exponentialRampToValueAtTime(48, t + 0.09);
+      o.frequency.setValueAtTime(mode === 'off' ? 190 : 165, t);
+      o.frequency.exponentialRampToValueAtTime(mode === 'off' ? 52 : 46, t + 0.08);
       const g = amp(0);
       g.gain.setValueAtTime(0.95 * v, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (mode === 'off' ? 0.22 : 0.3));
       o.connect(g).connect(out);
-      o.start(t); o.stop(t + 0.3);
+      o.start(t); o.stop(t + 0.32);
       // アタックの「カッ」
       const n = noise();
       const ng = amp(0);
@@ -449,7 +454,7 @@ window.Sound = (() => {
     }
 
     // 808 ベース（長くのびる低音。glide があれば音程をすべらせる）
-    function bass808(t, note, len, glide) {
+    function bass808(t, note, len, glide, v = 0.9) {
       const o = c.createOscillator();
       o.type = 'sine';
       const f = midi(note);
@@ -461,10 +466,26 @@ window.Sound = (() => {
       }
       const g = amp(0);
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.9, t + 0.008);
-      g.gain.setValueAtTime(0.9, t + len * 0.6);
+      g.gain.exponentialRampToValueAtTime(v, t + 0.008);
+      g.gain.setValueAtTime(v, t + len * 0.6);
       g.gain.exponentialRampToValueAtTime(0.0001, t + len);
       o.connect(g).connect(shaper);
+      o.start(t); o.stop(t + len + 0.02);
+    }
+
+    // はずむベース（オフェンスの裏拍。ノコギリ波を少しこもらせる）
+    function pump(t, note, len) {
+      const o = c.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = midi(note);
+      const f = bq('lowpass', 300, 4);
+      f.frequency.setValueAtTime(1600, t);
+      f.frequency.exponentialRampToValueAtTime(300, t + len);
+      const g = amp(0);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.16, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(f).connect(g).connect(out);
       o.start(t); o.stop(t + len + 0.02);
     }
 
@@ -472,7 +493,7 @@ window.Sound = (() => {
     function snare(t, v = 1) {
       const o = c.createOscillator();
       o.type = 'triangle';
-      o.frequency.setValueAtTime(240, t);
+      o.frequency.setValueAtTime(mode === 'off' ? 260 : 220, t);
       o.frequency.exponentialRampToValueAtTime(160, t + 0.08);
       const og = amp(0);
       og.gain.setValueAtTime(0.35 * v, t);
@@ -501,8 +522,8 @@ window.Sound = (() => {
     function hat(t, open, v = 1) {
       const n = noise();
       const g = amp(0);
-      const len = open ? 0.22 : 0.03;
-      g.gain.setValueAtTime((open ? 0.13 : 0.15) * v, t);
+      const len = open ? 0.2 : 0.03;
+      g.gain.setValueAtTime((open ? 0.12 : 0.14) * v, t);
       g.gain.exponentialRampToValueAtTime(0.0001, t + len);
       n.connect(bq('highpass', 7800, 0.8)).connect(g).connect(out);
       n.start(t, Math.random() * 0.5); n.stop(t + len + 0.01);
@@ -517,8 +538,8 @@ window.Sound = (() => {
         o.detune.value = cents;
         const g = amp(0);
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.03 * v, t + 0.08);
-        g.gain.setValueAtTime(0.03 * v, t + len - 0.1);
+        g.gain.linearRampToValueAtTime(0.028 * v, t + 0.08);
+        g.gain.setValueAtTime(0.028 * v, t + len - 0.1);
         g.gain.linearRampToValueAtTime(0.0001, t + len);
         o.connect(g).connect(padBus);
         o.start(t); o.stop(t + len + 0.02);
@@ -533,7 +554,7 @@ window.Sound = (() => {
         o.frequency.value = midi(note + oct);
         const f = bq('lowpass', 600, 2);
         f.frequency.setValueAtTime(600, t);
-        f.frequency.exponentialRampToValueAtTime(3800, t + 0.03);
+        f.frequency.exponentialRampToValueAtTime(4200, t + 0.025);
         f.frequency.exponentialRampToValueAtTime(900, t + len);
         const g = amp(0);
         g.gain.setValueAtTime(0.0001, t);
@@ -545,6 +566,23 @@ window.Sound = (() => {
       });
     }
 
+    // 16分でくり返す短いシンセ（ディフェンスのきんちょう感）
+    function pluck(t, note, v = 1) {
+      const o = c.createOscillator();
+      o.type = 'square';
+      o.frequency.value = midi(note);
+      const f = bq('lowpass', 500, 6);
+      f.frequency.setValueAtTime(2600, t);
+      f.frequency.exponentialRampToValueAtTime(500, t + 0.09);
+      const g = amp(0);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05 * v, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(f).connect(g);
+      g.connect(out); g.connect(rv);
+      o.start(t); o.stop(t + 0.14);
+    }
+
     // 盛り上げの「シューッ」（だんだん高く・大きく）
     function riser(t, len) {
       const n = noise();
@@ -554,10 +592,62 @@ window.Sound = (() => {
       f.frequency.exponentialRampToValueAtTime(9000, t + len);
       const g = amp(0);
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.18, t + len);
+      g.gain.exponentialRampToValueAtTime(0.16, t + len);
       n.connect(f).connect(g);
       g.connect(out); g.connect(rv);
       n.start(t); n.stop(t + len);
+    }
+
+    // オフェンス：4つ打ちのキック、裏拍のオープンハイハットとベース、ブラスのかけ声フレーズ
+    function stepOff(t, bar, k, ch, sec, full, brk) {
+      const r = ROOT[ch], c3 = CHORDS[ch];
+      if (!brk) {
+        if (sec === 2 ? k === 0 : k % 4 === 0 || (sec === 0 && k === 14 && ch === 3)) kick(t, sec === 2 ? 0.7 : 1);
+        if (k === 4 || k === 12) snare(t, sec === 2 ? 0.7 : 1);
+        if (bar >= 1) {
+          if (k % 4 === 2) hat(t, true, sec === 0 ? 0.7 : 1);
+          else if (full) hat(t, false, 0.55);
+        }
+        // 裏拍ではずむベース（1オクターブ上）と、1拍目の太い 808
+        if (k % 4 === 2) pump(t, r + 12, SX * 1.6);
+        if (k === 0 && sec !== 2) bass808(t, r, SX * 3, 0, 0.7);
+      }
+      if (bar === 15 && k >= 8 && k % 2 === 0) snare(t, 0.35 + (k - 8) * 0.08);
+      if (bar === 11 && k === 8) riser(t, SX * 8);
+      if (sec >= 1 && k === 0) pad(t, c3, SX * 16, sec === 2 ? 1.3 : 1);
+      // ブラス：「タッ・タッ・タ・タッ」のかけ声フレーズ（全部入りのとき）
+      if (full) {
+        const riff = bar % 2 === 0 ? { 0: c3[2], 3: c3[2], 6: c3[1], 8: c3[2] } : { 0: c3[0] + 12, 2: c3[2], 4: c3[1], 7: c3[2], 10: c3[0] + 12 };
+        if (k in riff && (sec === 3 || bar % 2 === 1 || k < 8)) stab(t, riff[k], k === 8 || k === 10 ? SX * 3 : SX * 1.4);
+      }
+    }
+
+    // ディフェンス：はねたキックと 808、16分のハイハット（ロールあり）、16分のシンセ
+    function stepDef(t, bar, k, ch, sec, full, brk) {
+      const r = ROOT[ch], c3 = CHORDS[ch];
+      const kpat = ch % 2 ? [0, 6, 10, 13] : [0, 3, 8, 11];
+      if (!brk && kpat.includes(k) && !(sec === 2 && k !== 0)) kick(t, sec === 2 ? 0.7 : 1);
+      if (!brk && (k === 4 || k === 12)) snare(t, sec === 2 ? 0.7 : 1);
+      if (bar === 15 && k >= 12) snare(t, 0.4 + (k - 12) * 0.15);
+      if (bar === 11 && k === 8) riser(t, SX * 8);
+      if (!brk && bar >= 1) {
+        const roll = (ch === 1 && k >= 12) || (ch === 3 && k >= 6 && k < 8);
+        if (roll) { hat(t, false, 0.8); hat(t + SX / 3, false, 0.6); hat(t + SX * 2 / 3, false, 0.7); }
+        else hat(t, false, k % 4 === 0 ? 1 : k % 2 ? 0.5 : 0.75);
+      }
+      if (!brk) {
+        if (k === 0) bass808(t, r, SX * 6, ch === 3 && bar % 4 === 3 ? r + 12 : 0);
+        if (k === 8) bass808(t, r, SX * 4, 0);
+        if (k === 14 && ch % 2) bass808(t, r + 3, SX * 2, 0);
+      }
+      if (sec >= 1 && k === 0) pad(t, c3, SX * 16, sec === 2 ? 1.4 : 0.9);
+      // 16分のシンセ（和音の音をくり返す。落としたところと最後は大きめ）
+      if (sec >= 1 && !brk) {
+        const seq = [0, 2, 1, 2, 0, 2, 1, 0];
+        pluck(t, c3[seq[k % 8]] + (k >= 8 && sec === 3 ? 12 : 0), sec === 2 ? 1.1 : 0.8);
+      }
+      // 低いブラスの警告音（2小節に1回）
+      if (full && bar % 2 === 1 && (k === 0 || k === 3)) stab(t, c3[0] - 12, SX * 2.5, 0.8);
     }
 
     // 16分音符ひとつ分を鳴らす（i：曲のはじめから何番目か）
@@ -566,53 +656,67 @@ window.Sound = (() => {
       const sec = bar < 4 ? 0 : bar < 8 ? 1 : bar < 12 ? 2 : 3;
       const full = sec === 1 || sec === 3;
       const brk = bar === 11 && k >= 8; // 盛り上げの前は少し止める
-      // キック（トラップらしく、少しはねたリズム）。落としたところは1拍目だけ
-      const kpat = ch === 3 ? [0, 3, 7, 10, 14] : [0, 3, 10];
-      if (!brk && kpat.includes(k) && !(sec === 2 && k !== 0)) kick(t, sec === 2 ? 0.7 : 1);
-      // スネア＋クラップ（2拍目・4拍目）、最後の小節はたたみかける
-      if (!brk && (k === 4 || k === 12)) snare(t, sec === 2 ? 0.7 : 1);
-      if (bar === 15 && k >= 12) snare(t, 0.4 + (k - 12) * 0.15);
-      if (bar === 11 && k === 8) riser(t, SX * 8);
-      // ハイハット：8分で刻み、ところどころ32分のロール（はじめの2小節はなし）
-      if (!brk && bar >= 2) {
-        const roll = (ch === 1 && k >= 12) || (ch === 3 && k >= 8 && k < 12);
-        if (roll) { hat(t, false, 0.8); hat(t + SX / 2, false, 0.6); }
-        else if (k % 2 === 0) hat(t, false, k % 4 === 0 ? 1 : 0.7);
-        if (full && k === 6) hat(t, true);
-      }
-      // 808 ベース
-      const r = ROOT[ch];
-      if (!brk) {
-        if (k === 0) bass808(t, r, SX * 6, ch === 3 && bar % 8 === 7 ? r + 12 : 0);
-        if (k === 10) bass808(t, r, SX * 4, 0);
-        if (k === 14 && ch === 1) bass808(t, r + 7, SX * 2, 0);
-      }
-      // パッド（全部入りと、落としたところ）
-      if (sec >= 1 && k === 0) pad(t, CHORDS[ch], SX * 16, sec === 2 ? 1.3 : 1);
-      // ブラス風のフレーズ（全部入りのとき。最後のパートは毎小節）
-      if (full && (sec === 3 || bar % 2 === 1)) {
-        const c3 = CHORDS[ch];
-        const riff = { 0: c3[2], 3: c3[2], 6: c3[1], 10: c3[0], 12: c3[1] };
-        if (k in riff) stab(t, riff[k], k === 12 ? SX * 3 : SX * 1.5);
-      }
+      (mode === 'off' ? stepOff : stepDef)(t, bar, k, ch, sec, full, brk);
     }
-    return { step };
+    return { step, sx: SX };
   }
 
-  function startBgm() {
+  // 2曲をそれぞれの音量つまみにつないでおき、いま鳴らす曲だけ先読みで鳴らす
+  function track(mode) {
+    let t = bgm.tracks[mode];
+    if (!t) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(bgmBus);
+      t = bgm.tracks[mode] = { gain: g, eng: bgmEngine(ctx, g, mode), i: 0 };
+    }
+    return t;
+  }
+
+  function startBgm(mode = 'off') {
     if (!ctx || bgm) return;
-    bgm = { next: ctx.currentTime + 0.1, i: 0, eng: bgmEngine(ctx, bgmBus) };
+    bgm = { tracks: {}, mode: null, next: 0 };
+    setBgmMode(mode, true);
     bgm.timer = setInterval(() => {
-      while (bgm && bgm.next < ctx.currentTime + 0.2) {
-        bgm.eng.step(bgm.next, bgm.i++);
-        bgm.next += SX;
+      if (!bgm) return;
+      const t = bgm.tracks[bgm.mode];
+      while (bgm.next < ctx.currentTime + 0.2) {
+        t.eng.step(bgm.next, t.i++);
+        bgm.next += t.eng.sx;
       }
     }, 30);
+  }
+
+  // オフェンス（'off'）とディフェンス（'def'）の曲を切りかえる（前の曲は小さくしながら止める）
+  function setBgmMode(mode, first) {
+    if (!bgm || !SONGS[mode] || bgm.mode === mode) return;
+    const now = ctx.currentTime;
+    const old = bgm.mode && bgm.tracks[bgm.mode];
+    if (old) {
+      old.gain.gain.cancelScheduledValues(now);
+      old.gain.gain.setValueAtTime(old.gain.gain.value, now);
+      old.gain.gain.linearRampToValueAtTime(0, now + 0.6);
+    }
+    const t = track(mode);
+    // 前に止めたところの次の小節から（曲の頭にもどってばかりにならないように）
+    t.i = Math.ceil(t.i / 16) * 16;
+    t.gain.gain.cancelScheduledValues(now);
+    t.gain.gain.setValueAtTime(first ? SONGS[mode].vol : 0, now); // 2曲の音量をそろえる（vol）
+    if (!first) t.gain.gain.linearRampToValueAtTime(SONGS[mode].vol, now + 0.35);
+    bgm.mode = mode;
+    bgm.next = now + 0.06;
   }
 
   function stopBgm() {
     if (!bgm) return;
     clearInterval(bgm.timer);
+    const now = ctx.currentTime;
+    Object.values(bgm.tracks).forEach(t => {
+      t.gain.gain.cancelScheduledValues(now);
+      t.gain.gain.setValueAtTime(t.gain.gain.value, now);
+      t.gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      setTimeout(() => t.gain.disconnect(), 3000);
+    });
     bgm = null;
   }
 
@@ -628,21 +732,21 @@ window.Sound = (() => {
     return c.startRendering();
   }
 
-  // BGM を録音する（確認用）：sec 秒分を OfflineAudioContext で作って AudioBuffer を返す
-  function renderBgm(sec = 40) {
+  // BGM を録音する（確認用）：sec 秒分を OfflineAudioContext で作って AudioBuffer を返す。mode は 'off' か 'def'
+  function renderBgm(sec = 40, mode = 'off') {
     const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     const c = new AC(2, Math.ceil(44100 * sec), 44100);
     const out = c.createGain();
-    out.gain.value = 0.55;
+    out.gain.value = 0.55 * SONGS[mode].vol;
     const comp = c.createDynamicsCompressor();
     out.connect(comp).connect(c.destination);
-    const eng = bgmEngine(c, out);
-    for (let i = 0, t = 0.05; t < sec - 0.3; i++, t += SX) eng.step(t, i);
+    const eng = bgmEngine(c, out, mode);
+    for (let i = 0, t = 0.05; t < sec - 0.3; i++, t += eng.sx) eng.step(t, i);
     return c.startRendering();
   }
 
   return {
-    unlock, setOn, setBgmOn, startBgm, stopBgm, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
+    unlock, setOn, setBgmOn, startBgm, stopBgm, setBgmMode, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
     get on() { return on; },
     get state() { return ctx ? ctx.state : "none"; },
   };
