@@ -250,7 +250,7 @@
       ['B.PREMIER', S.teams.filter(t => t.league === 'B.PREMIER')]];
     $app.innerHTML = `
       <section class="welcome">
-        <div class="title-logo"><span>Bリーグ</span><b>STORM</b></div>
+        <div class="title-logo"><img src="icons/logo.png" alt="Bリーグ ストーム"><span>Bリーグ</span><b>STORM</b></div>
         <p class="lead">${esc(window.BP_DATA.season)} シーズンの選手で、自分だけのチームをそだてよう。</p>
         <label class="field">GMの名前（なくてもOK）<input id="gm" maxlength="12" placeholder="例：あきら"></label>
         ${groups.map(([g, ts]) => `<h2 class="sec">${g}</h2>
@@ -283,7 +283,7 @@
     const ids = S.lineup();
     const ovr = Math.round(ids.reduce((a, id) => a + S.rating(id).ovr, 0) / 5);
     $app.innerHTML = `
-      ${header('Bリーグ ストーム', false)}
+      ${header('<img class="hlogo" src="icons/logo.png" alt="">Bリーグ ストーム', false)}
       <section class="hero" style="${teamStyle(t)}">
         ${logo(t)}
         <div>
@@ -523,6 +523,11 @@
         <div id="offState">${offlineHtml()}</div>
       </div>
       <div class="panel">
+        <h3>アップデート</h3>
+        <p class="hint">いまのバージョン：<b>v${APP_VER}</b></p>
+        <button class="btn" id="checkUpd">新しいバージョンがあるか確認する</button>
+      </div>
+      <div class="panel">
         <h3>推しチームをえらびなおす</h3>
         <p class="hint">記録・育成・コインがすべて消えます。</p>
         <button class="btn danger" id="reset">最初からやりなおす</button>
@@ -546,6 +551,7 @@
     };
     document.getElementById('cpuLv').oninput = e => setLv(Number(e.target.value));
     $app.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => setLv(d.cpuLv + Number(b.dataset.lv)));
+    document.getElementById('checkUpd').onclick = () => checkUpdate(true);
     document.getElementById('reset').onclick = () => {
       if (confirm('本当に最初からやりなおしますか？')) { S.reset(); go('home'); }
     };
@@ -580,7 +586,57 @@
     });
     // スマホの空きが少ないときに消されないようにたのむ
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    sw.register('sw.js').then(() => sw.ready).then(reg => reg.active && reg.active.postMessage('prefetch'));
+    sw.register('sw.js').then(reg => { watchUpdate(reg); return sw.ready; }).then(reg => reg.active && reg.active.postMessage('prefetch'));
+  }
+
+  // ---------- アップデート ----------
+  // 新しい版を公開すると、新しい sw.js が裏で読みこまれて待っている。それを見つけたらお知らせを出す
+  const APP_VER = ((document.querySelector('script[src*="js/app.js"]') || {}).src || '').split('v=')[1] || '?';
+  let updReg = null, updating = false;
+
+  function watchUpdate(reg) {
+    updReg = reg;
+    const sw = navigator.serviceWorker;
+    if (reg.waiting && sw.controller) showUpdate();
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      if (w) w.addEventListener('statechange', () => { if (w.state === 'installed' && sw.controller) showUpdate(); });
+    });
+    // 新しい版に切りかわったら読みこみ直す（ボタンを押したときだけ）
+    sw.addEventListener('controllerchange', () => { if (updating) location.reload(); });
+    // アプリに戻ってきたときと、30分ごとに確認する
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(false); });
+    setInterval(() => checkUpdate(false), 30 * 60 * 1000);
+  }
+
+  function checkUpdate(byUser) {
+    if (!updReg) { if (byUser) toast('この画面では確認できません（ネットで開いたときに使えます）'); return; }
+    updReg.update().then(() => {
+      if (!byUser) return;
+      if (updReg.waiting) showUpdate();
+      else if (updReg.installing) toast('新しいバージョンを読みこみ中です。少し待ってね');
+      else toast(`いまのバージョン（v${APP_VER}）が最新です`);
+    }).catch(() => { if (byUser) toast('確認できませんでした。ネットにつながっているか見てね'); });
+  }
+
+  function showUpdate() {
+    if (document.getElementById('updBar')) return;
+    // 試合中はじゃまをしないよう、試合が終わってから出す
+    if (document.getElementById('m3d')) { setTimeout(showUpdate, 5000); return; }
+    const bar = document.createElement('div');
+    bar.id = 'updBar';
+    bar.className = 'upd-bar';
+    bar.innerHTML = `<span>✨ 新しいバージョンがあります</span>
+      <button class="go">アップデート</button><button class="later" aria-label="あとで">あとで</button>`;
+    bar.querySelector('.go').onclick = () => {
+      const w = updReg && updReg.waiting;
+      if (!w) { location.reload(); return; }
+      updating = true;
+      bar.querySelector('.go').textContent = '更新中…';
+      w.postMessage('skipWaiting');
+    };
+    bar.querySelector('.later').onclick = () => bar.remove();
+    document.body.appendChild(bar);
   }
 
   // ---------- あそびかた（操作説明） ----------

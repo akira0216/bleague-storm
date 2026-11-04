@@ -245,9 +245,9 @@ body.playing { overflow: hidden; }
 .m3d-card b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m3d-card small { font-size: 11px; color: var(--mute); }
 /* 十字キー（どこを押しても、そこが中心になる） */
-.m3d-joy { position: absolute; left: 0; bottom: 0; width: 48%; height: 62%; }
+.m3d-joy { position: absolute; left: env(safe-area-inset-left, 0px); bottom: env(safe-area-inset-bottom, 0px); width: 48%; height: 62%; }
 .m3d-joy .base {
-  position: absolute; left: 90px; top: 62%; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%;
+  position: absolute; left: 118px; top: 62%; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%;
   background: rgba(255, 255, 255, .08); border: 2px solid rgba(255, 255, 255, .25); opacity: .55;
 }
 .m3d-joy .base.on { opacity: 1; }
@@ -657,3 +657,22 @@ body.playing { overflow: hidden; }
 .attr { grid-template-columns: 74px 1fr 30px 34px 44px; }
 .attr small { display: grid; line-height: 1.15; }
 .attr .itb { font-style: normal; color: #c9a2ff; font-size: 10.5px; white-space: nowrap; }
+
+/* ---------- ロゴ ---------- */
+.title-logo img { display: block; width: 168px; height: 168px; margin: 0 auto 6px; filter: drop-shadow(0 8px 24px rgba(37, 200, 104, .35)); }
+.bar h1 { display: flex; align-items: center; gap: 8px; }
+.bar h1 .hlogo { width: 34px; height: 34px; flex: none; }
+
+/* ---------- アップデートのお知らせ ---------- */
+.upd-bar {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 9999;
+  display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 24px);
+  padding: 10px 10px 10px 16px; border-radius: 14px; background: #0f1a2e; border: 1px solid rgba(37, 200, 104, .6);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5); color: #fff; font-size: 14px; font-weight: 700;
+  animation: updIn .35s ease-out;
+}
+.upd-bar span { flex: 1; min-width: 0; }
+.upd-bar button { white-space: nowrap; flex: none; font: inherit; border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+.upd-bar .go { background: #25c868; color: #06130b; font-weight: 900; }
+.upd-bar .later { background: transparent; color: #9aa3b5; padding: 8px 6px; font-weight: 500; }
+@keyframes updIn { from { transform: translate(-50%, 30px); opacity: 0; } }

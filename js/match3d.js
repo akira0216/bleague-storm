@@ -2044,9 +2044,13 @@ class Match {
     let joyId = null, ox = 0, oy = 0;
     const R = 56;
     ui.joy.addEventListener('pointerdown', e => {
-      joyId = e.pointerId; ox = e.clientX; oy = e.clientY;
+      joyId = e.pointerId;
       capture(ui.joy, e);
       const rc = ui.joy.getBoundingClientRect();
+      // 画面のはしを押しても、十字キーが全部見えるように中心を内がわへ寄せる
+      const M = 72;
+      ox = clamp(e.clientX, rc.left + M, rc.right - M);
+      oy = clamp(e.clientY, rc.top + M, Math.min(rc.bottom, innerHeight) - M);
       ui.base.style.left = ox - rc.left + 'px';
       ui.base.style.top = oy - rc.top + 'px';
       ui.base.classList.add('on');

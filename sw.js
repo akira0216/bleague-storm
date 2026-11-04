@@ -1,6 +1,6 @@
 // オフラインでも使えるようにファイルを保存しておく
 // ファイルを更新したら VERSION と index.html の ?v= を上げること（上げないと古いままになる）
-const VERSION = 'v1.8.3';
+const VERSION = 'v1.9.0';
 // 選手の写真・顔・ロゴ（約10MB）は、アプリを更新しても取り直さないよう別に保存する
 // （選手データを取り直して画像が変わったときだけ、ここを上げる）
 const ASSETS = 'bp-assets-1';
@@ -24,12 +24,15 @@ const FILES = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/logo.png',
 ];
 const isAsset = path => /\/(photos|faces|logos)\/[^/]+$/.test(path);
 const isFont = host => host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com';
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // 初めて入れるときはすぐ使う。新しい版は、画面の「アップデート」ボタンが押されるまで待つ
+  const first = !self.registration.active;
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => first && self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -82,6 +85,7 @@ async function prefetchAll() {
 }
 
 self.addEventListener('message', e => {
+  if (e.data === 'skipWaiting') return self.skipWaiting(); // 画面で「アップデート」が押された
   if (e.data !== 'prefetch') return;
   if (!prefetching) prefetching = prefetchAll().catch(() => tell({ type: 'offline', error: true })).finally(() => { prefetching = null; });
   e.waitUntil(prefetching);
