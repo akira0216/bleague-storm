@@ -252,6 +252,10 @@
       <section class="welcome">
         <div class="title-logo"><img src="icons/logo.png" alt="Bリーグ ストーム"><span>Bリーグ</span><b>STORM</b></div>
         <p class="lead">${esc(window.BP_DATA.season)} シーズンの選手で、自分だけのチームをそだてよう。</p>
+        <div class="panel restore">
+          <span>前のスマホやインストールし直す前の記録がある人は</span>
+          <label class="btn">バックアップから戻す<input type="file" accept=".json,application/json" id="bkLoad" hidden></label>
+        </div>
         <label class="field">GMの名前（なくてもOK）<input id="gm" maxlength="12" placeholder="例：あきら"></label>
         ${groups.map(([g, ts]) => `<h2 class="sec">${g}</h2>
           <div class="team-grid">${ts.map(t => `
@@ -260,6 +264,7 @@
             </button>`).join('')}</div>`).join('')}
         <p class="note">データ：B.LEAGUE公式サイト（${esc(window.BP_DATA.updated)} 取得）。個人・家族で楽しむためのファンアプリです。</p>
       </section>`;
+    document.getElementById('bkLoad').onchange = e => { loadBackup(e.target.files[0]); e.target.value = ''; };
     $app.querySelectorAll('[data-team]').forEach(b => b.onclick = () => {
       const t = S.teamById[b.dataset.team];
       S.data.gm = document.getElementById('gm').value.trim();
@@ -567,6 +572,54 @@
     render();
   }
 
+  // ---------- バックアップ（記録をファイルに保存・ファイルから戻す） ----------
+  const BACKUP_KEY = 'bpDynasty.v1'; // store.js の保存先と同じ
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+  async function saveBackup() {
+    S.data.lastBackup = new Date().toISOString();
+    S.save();
+    const body = JSON.stringify({ app: 'bleague-storm', kind: 'backup', ver: APP_VER, at: S.data.lastBackup, data: S.data });
+    const name = `Bストーム_バックアップ_${today()}.json`;
+    const file = new File([body], name, { type: 'application/json' });
+    // スマホは共有画面（Google ドライブ・LINE・メールなど）。使えないときはダウンロード
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Bストームのバックアップ' });
+        toast('バックアップを保存しました');
+        return render();
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return render(); // 共有をやめた
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast(`「${name}」をダウンロードしました`);
+    render();
+  }
+
+  async function loadBackup(file) {
+    if (!file) return;
+    let b;
+    try { b = JSON.parse(await file.text()); } catch (e) { b = null; }
+    const d = b && b.app === 'bleague-storm' && b.kind === 'backup' ? b.data : null;
+    if (!d || typeof d !== 'object' || typeof d.owned !== 'object' || !Array.isArray(d.lineup)) {
+      return toast('Bストームのバックアップファイルではないようです');
+    }
+    const n = Object.keys(d.owned).length;
+    const when = b.at ? new Date(b.at).toLocaleString('ja-JP') : '日時不明';
+    if (!confirm(`${when} のバックアップ（選手 ${n}人・コイン ${d.coins || 0}）に戻します。\nいまの記録は上書きされて消えます。よろしいですか？`)) return;
+    try { localStorage.setItem(BACKUP_KEY, JSON.stringify(d)); } catch (e) { return toast('保存できませんでした（空き容量を確認してね）'); }
+    alert('バックアップから戻しました。アプリを読みこみ直します。');
+    location.reload();
+  }
+
   function renderSettings() {
     const d = S.data;
     const opt = (key, vals) => vals.map(([v, l]) => `<button class="chip ${d[key] === v ? 'on' : ''}" data-set="${key}" data-val="${v}">${l}</button>`).join('');
@@ -591,6 +644,15 @@
           <label class="btn">曲をえらぶ<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" data-bgmfile="${k}" hidden></label>
           ${myBgm[k] ? `<button class="btn" data-bgmreset="${k}">アプリの曲にもどす</button>` : ''}
         </div>`).join('')}
+      </div>
+      <div class="panel">
+        <h3>バックアップ</h3>
+        <p class="hint">選手・育成・コイン・アイテム・シーズンなどの記録を、1つのファイルに保存できます。<b>アプリを削除・インストールし直す前</b>や<b>スマホを変えるとき</b>は、かならず保存してね（BGMにえらんだ曲は入りません）。</p>
+        <p class="hint">前回の保存：<b>${d.lastBackup ? esc(new Date(d.lastBackup).toLocaleString('ja-JP')) : 'まだありません'}</b></p>
+        <div class="row2">
+          <button class="btn primary" id="bkSave">バックアップを保存</button>
+          <label class="btn">バックアップから戻す<input type="file" accept=".json,application/json" id="bkLoad" hidden></label>
+        </div>
       </div>
       <div class="panel">
         <h3>オフライン</h3>
@@ -626,6 +688,8 @@
     document.getElementById('cpuLv').oninput = e => setLv(Number(e.target.value));
     $app.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => setLv(d.cpuLv + Number(b.dataset.lv)));
     document.getElementById('checkUpd').onclick = () => checkUpdate(true);
+    document.getElementById('bkSave').onclick = () => saveBackup();
+    document.getElementById('bkLoad').onchange = e => { loadBackup(e.target.files[0]); e.target.value = ''; };
     $app.querySelectorAll('[data-bgmfile]').forEach(inp => inp.onchange = () => pickBgm(inp.dataset.bgmfile, inp.files[0]));
     $app.querySelectorAll('[data-bgmreset]').forEach(b => b.onclick = async () => {
       const k = b.dataset.bgmreset;

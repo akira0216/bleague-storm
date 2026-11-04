@@ -722,3 +722,7 @@ body.playing { overflow: hidden; }
 .mybgm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--edge); }
 .mybgm > span { flex: 1 1 100%; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mybgm label.btn { cursor: pointer; }
+
+/* はじめの画面：バックアップから戻す */
+.panel.restore { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; font-size: 13px; }
+.panel.restore label.btn { cursor: pointer; }
