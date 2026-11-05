@@ -279,7 +279,42 @@
   // ---------- 画面 ----------
   let view = 'home';
   let viewArg = null;
-  function go(v, arg) { view = v; viewArg = arg; render(); window.scrollTo(0, 0); }
+  function go(v, arg) { view = v; viewArg = arg; render(); window.scrollTo(0, 0); syncHist(); }
+
+  // ---------- 戻る操作（左端からのスワイプ・Android の戻るボタン） ----------
+  // ホームで下から出る画面も開いていないときだけ、ブラウザの履歴を1つにしておく（戻るとアプリが閉じる）。
+  // それ以外のときは履歴を1つ積んでおき、戻る操作が来たらアプリの中で1つ前に戻す。
+  let atTop = !!(history.state && history.state.bs);
+  let skipPop = false;
+  const dlgOpen = () => document.getElementById('dlg').classList.contains('open');
+  const needTop = () => view !== 'home' || dlgOpen();
+  function syncHist() {
+    if (needTop()) {
+      if (!atTop) { history.pushState({ bs: 1 }, ''); atTop = true; }
+    } else if (atTop) {
+      atTop = false; skipPop = true; history.back();
+    }
+  }
+  function goBack() {
+    const c = view === 'match' && match && match.ctrl;
+    if (c) {
+      // 試合中：説明・交代の画面を閉じる → 一時停止 ⇔ 試合に戻る
+      const mn = c.ui.menu;
+      if (mn.classList.contains('help-open') || mn.classList.contains('subs-open')) mn.classList.remove('help-open', 'subs-open');
+      else c.pause(!c.paused);
+    } else if (view === 'match' && match) {
+      // 試合の読み込み中は何もしない
+    } else if (dlgOpen()) {
+      const cb = document.querySelector('#dlg .close');
+      if (cb) cb.click(); else closeDlg();
+    } else if (view === 'pre' && String(viewArg || '').startsWith('free:')) go('free');
+    else if (view !== 'home') go('home');
+  }
+  window.addEventListener('popstate', e => {
+    atTop = !!(e.state && e.state.bs);
+    if (skipPop) skipPop = false; else goBack();
+    syncHist();
+  });
 
   function render() {
     if (view !== 'match') Sound.setMenu(true);
@@ -1078,5 +1113,8 @@
   Sound.setMenu(true);
   document.addEventListener('pointerdown', () => Sound.unlock(), true);
   render();
+  // 下から出る画面が開いた・閉じたときも履歴をそろえる
+  new MutationObserver(() => syncHist()).observe(document.getElementById('dlg'), { attributes: true, attributeFilter: ['class'] });
+  syncHist();
   if ('serviceWorker' in navigator && window.isSecureContext) startOffline();
 })();
