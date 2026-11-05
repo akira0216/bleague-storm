@@ -3076,7 +3076,7 @@ class Match {
       return;
     }
     st.q++;
-    st.clock = st.q > 4 ? 60 : st.qLen;
+    st.clock = st.q > 4 ? Math.min(60, st.qLen) : st.qLen; // 同点なら1分の延長
     // クォーターの間の休けい：コートの選手 +10、ベンチ +30
     this.all().forEach(p => { p.stam = Math.min(100, p.stam + 10); });
     Object.keys(this.stam).forEach(pid => { this.stam[pid] = Math.min(100, this.stam[pid] + 30); });

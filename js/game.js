@@ -173,7 +173,7 @@ window.Game = (() => {
       if (st.q >= 4 && st.score[0] !== st.score[1]) st.over = true;
       else {
         st.q++;
-        st.clock = st.q > 4 ? 120 : st.qLen; // 同点なら2分の延長
+        st.clock = st.q > 4 ? Math.min(60, st.qLen) : st.qLen; // 同点なら1分の延長（3D の試合と同じ）
         st.qScores.push([...st.score]);
         ev.push({ t: 'quarter', q: st.q });
       }

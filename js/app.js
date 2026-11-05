@@ -724,7 +724,7 @@
           <b class="lv-num" id="lvNum">${d.cpuLv}</b>
         </div>
         <p class="hint">弱くすると、CPUの能力・スティール・シュートが下がり、自分のシュートゲージの緑が広くなります。</p>
-        <h3>1クォーターの長さ</h3><div class="chips">${opt('quarterMin', [[2, '2分'], [3, '3分'], [5, '5分']])}</div>
+        <h3>1クォーターの長さ</h3><div class="chips">${opt('quarterMin', [[1, '1分'], [2, '2分'], [3, '3分'], [5, '5分']])}</div>
         <h3>効果音・観客の声</h3><div class="chips">${opt('sound', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGM</h3><div class="chips">${opt('bgm', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGMの曲</h3>
