@@ -648,12 +648,13 @@ body.playing { overflow: hidden; }
 .ic-effs span { padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .12); }
 .ic-sp { font-size: 11px; color: #ffd45a; line-height: 1.35; }
 .ic-sp em { display: block; font-style: normal; color: #7dffb9; }
-/* 装備している選手：絵の右下に顔写真、下に顔写真＋名前のラベル */
-.ic-art { position: relative; }
-.ph.ic-face { position: absolute; right: -6px; bottom: -4px; width: 32px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, .55); }
+/* 装備している選手：右上（レア度と同じ高さ）に顔写真、下に顔写真＋名前のラベル */
+.ph.ic-face { position: absolute; top: 5px; right: 6px; width: 30px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, .55); }
 .ph.ic-face .ph-no { font-size: 14px; }
-.icard.big .ph.ic-face { width: 44px; right: -8px; }
-.icard.big .ph.ic-face .ph-no { font-size: 19px; }
+.icard.owned .ic-cp { right: 44px; } /* 強化用の数は顔写真の左へ */
+.icard.big .ph.ic-face { top: 5px; right: 8px; width: 36px; }
+.icard.big .ph.ic-face .ph-no { font-size: 18px; }
+.icard.big.owned .ic-cp { right: 52px; }
 .ph.xs { width: 20px; }
 .ph.xs .ph-no { font-size: 10px; }
 .ic-own { justify-self: center; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; box-sizing: border-box; margin-top: 2px; padding: 2px 9px 2px 2px; border-radius: 13px;

@@ -120,8 +120,9 @@
     const up = opt.lv === undefined && canUp(id);
     const aw = it.sp && lv >= IT.LV_MAX;
     const op = owner && S.playerById[owner]; // 装備している選手
-    return `<div class="icard r-${it.rarity}${up ? ' can-up' : ''}${aw ? ' awake' : ''}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
-      <div class="ic-art">${itemSvg(ty)}${op ? photo(op, 'ic-face') : ''}</div>
+    return `<div class="icard r-${it.rarity}${up ? ' can-up' : ''}${aw ? ' awake' : ''}${op ? ' owned' : ''}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
+      <div class="ic-art">${itemSvg(ty)}</div>
+      ${op ? photo(op, 'ic-face') : ''}
       <span class="ic-rar">${it.rarity}</span>
       ${cp ? `<span class="ic-cp" title="強化に使える同じアイテム">×${cp}</span>` : ''}
       ${stars(lv)}
