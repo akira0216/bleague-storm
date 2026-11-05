@@ -19,6 +19,8 @@ window.Sound = (() => {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       ctx = new AC();
+      // 起動直後に作ったときは、ブラウザが音を止めている（suspended）ことがある。動き出したら BGM を鳴らす
+      ctx.onstatechange = () => updateMenu();
       master = ctx.createGain();
       master.gain.value = on ? 0.9 : 0;
       const comp = ctx.createDynamicsCompressor();
@@ -69,10 +71,10 @@ window.Sound = (() => {
     });
   }
 
-  // ---------- 試合以外の画面の BGM（audio/menu-2.mp3 か、自分で選んだ曲をくり返し再生） ----------
+  // ---------- 試合以外の画面の BGM（audio/menu-3.mp3 か、自分で選んだ曲をくり返し再生） ----------
   // アプリの曲は一度まるごと読み込んでから鳴らす（保存しておけばオフラインでも鳴る）
-  const MENU_URL = 'audio/menu-2.mp3';
-  const MENU_VOL = 0.67; // 曲の平均の大きさに合わせて調整
+  const MENU_URL = 'audio/menu-3.mp3';
+  const MENU_VOL = 0.53; // 曲の平均の大きさに合わせて調整
   let menuWant = false;  // 今いる画面で流したいか（試合中は false）
   let menu = null;       // { el, gain, src }
   let menuDefUrl = null; // アプリの曲（読み込んだもの）
@@ -115,7 +117,8 @@ window.Sound = (() => {
   function updateMenu() {
     if (!ctx) return;
     ensureMenu();
-    const play = menuWant && bgmOn && !document.hidden;
+    // 音が止められている間に再生すると、無音のまま曲だけ進むので待つ
+    const play = menuWant && bgmOn && !document.hidden && ctx.state === 'running';
     const g = menu.gain.gain, now = ctx.currentTime;
     g.cancelScheduledValues(now);
     g.setValueAtTime(g.value, now);

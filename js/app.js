@@ -1111,9 +1111,12 @@
   Sound.setOn(!!S.data.sound);
   Sound.setBgmOn(!!S.data.bgm);
   loadMyBgm();
-  // 試合以外の画面の BGM。スマホは画面に触れるまで音を出せないので、触れるたびに鳴らせるか確かめる
+  // 試合以外の画面の BGM。起動したらすぐ鳴らす。
+  // ブラウザが許可しない場合（ホーム画面に追加していないときなど）は、最初に画面に触れたときに鳴り始める
   Sound.setMenu(true);
+  Sound.unlock();
   document.addEventListener('pointerdown', () => Sound.unlock(), true);
+  document.addEventListener('keydown', () => Sound.unlock(), true);
   render();
   // 下から出る画面が開いた・閉じたときも履歴をそろえる
   new MutationObserver(() => syncHist()).observe(document.getElementById('dlg'), { attributes: true, attributeFilter: ['class'] });
