@@ -171,22 +171,45 @@ function numberTexture(no, bg, fg) {
   return t;
 }
 
-// 頭の上の背番号バッジ
+// 頭の上の背番号バッジ（丸い吹き出しの下に、小さなしっぽで頭を指す）
 function badgeTexture(no, color) {
   const cv = document.createElement('canvas');
-  cv.width = 128; cv.height = 72;
+  cv.width = 128; cv.height = 160;
   const g = cv.getContext('2d');
-  g.fillStyle = color;
-  g.strokeStyle = '#ffffff';
-  g.lineWidth = 6;
-  g.beginPath();
-  g.roundRect(5, 5, 118, 62, 18);
-  g.fill(); g.stroke();
-  g.font = '700 58px "Teko", Impact, "Arial Black", sans-serif';
+  const cx = 64, cy = 62, r = 52, tip = 142;
+  const pin = () => {
+    // 丸はそのまま一周させ、真下に小さな吹き出しのしっぽを付ける
+    const d = 0.3, a0 = Math.PI / 2 + d, a1 = Math.PI / 2 - d;
+    g.beginPath();
+    g.arc(cx, cy, r, a0, a1, false);
+    const rx = cx + r * Math.cos(a1), ry = cy + r * Math.sin(a1);
+    g.quadraticCurveTo(cx + 5, ry + 12, cx, tip);
+    const lx = cx + r * Math.cos(a0);
+    g.quadraticCurveTo(cx - 5, ry + 12, lx, ry);
+    g.closePath();
+  };
+  // 薄い影
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
+  g.fillStyle = color; pin(); g.fill();
+  g.restore();
+  // 上を少し明るくして立体感
+  const grd = g.createLinearGradient(0, cy - r, 0, tip);
+  grd.addColorStop(0, 'rgba(255,255,255,.28)');
+  grd.addColorStop(0.55, 'rgba(255,255,255,0)');
+  grd.addColorStop(1, 'rgba(0,0,0,.18)');
+  g.fillStyle = grd; pin(); g.fill();
+  g.strokeStyle = '#ffffff'; g.lineWidth = 6; g.lineJoin = 'round';
+  pin(); g.stroke();
+  // 数字（3桁などで幅が広いときは縮める）
+  let fs = 66;
+  g.font = `700 ${fs}px "Teko", Impact, "Arial Black", sans-serif`;
+  const w = g.measureText(no).width;
+  if (w > 80) { fs = Math.floor(fs * 80 / w); g.font = `700 ${fs}px "Teko", Impact, "Arial Black", sans-serif`; }
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.6)';
-  g.strokeText(no, 64, 41);
-  g.fillStyle = '#ffffff'; g.fillText(no, 64, 41);
+  g.strokeText(no, cx, cy + 4);
+  g.fillStyle = '#ffffff'; g.fillText(no, cx, cy + 4);
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -1133,10 +1156,10 @@ function buildPlayer(info, jersey, numFg, face, badgeColor, kit) {
   shadow.position.y = 0.012;
   root.add(shadow);
   const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTexture(info.no, badgeColor), depthWrite: false }));
-  // スマホ（指で操作する画面）は背番号を 20% 大きく
-  const bk = window.matchMedia && matchMedia('(pointer: coarse)').matches ? 1.2 : 1;
-  badge.scale.set(0.5 * bk, 0.28 * bk, 1);
-  badge.position.y = h * VIS + 0.45 + 0.14 * (bk - 1);
+  // スマホ（指で操作する画面）は背番号を 32% 大きく。ピンの先が頭の少し上に来る位置に置く
+  const bk = window.matchMedia && matchMedia('(pointer: coarse)').matches ? 1.32 : 1;
+  badge.scale.set(0.42 * bk, 0.525 * bk, 1);
+  badge.position.y = h * VIS + 0.24 + 0.525 * bk * (62 / 160);
   badge.renderOrder = 5;
   root.add(badge);
   return { root, body, legs, arms, head, shadow, badge, height: h * VIS, realH: h, sty };
