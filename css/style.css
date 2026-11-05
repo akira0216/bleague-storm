@@ -648,7 +648,17 @@ body.playing { overflow: hidden; }
 .ic-effs span { padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .12); }
 .ic-sp { font-size: 11px; color: #ffd45a; line-height: 1.35; }
 .ic-sp em { display: block; font-style: normal; color: #7dffb9; }
-.ic-own { font-size: 11px; color: #c3cde0; }
+/* 装備している選手：絵の右下に顔写真、下に顔写真＋名前のラベル */
+.ic-art { position: relative; }
+.ph.ic-face { position: absolute; right: -6px; bottom: -4px; width: 32px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, .55); }
+.ph.ic-face .ph-no { font-size: 14px; }
+.icard.big .ph.ic-face { width: 44px; right: -8px; }
+.icard.big .ph.ic-face .ph-no { font-size: 19px; }
+.ph.xs { width: 20px; }
+.ph.xs .ph-no { font-size: 10px; }
+.ic-own { justify-self: center; display: inline-flex; align-items: center; gap: 5px; max-width: 100%; box-sizing: border-box; margin-top: 2px; padding: 2px 9px 2px 2px; border-radius: 13px;
+  font-size: 11.5px; font-weight: 700; color: #fff; background: color-mix(in srgb, var(--tc) 38%, rgba(0, 0, 0, .45)); border: 1px solid color-mix(in srgb, var(--tc) 65%, #fff); }
+.ic-own span { min-width: 0; line-height: 1.2; overflow-wrap: anywhere; } /* 長い名前は2行に折り返す */
 .ic-up { justify-self: center; margin-top: 2px; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 900; color: #06231a; background: #36d69a; animation: upPulse 1.2s ease-in-out infinite alternate; }
 @keyframes upPulse { from { box-shadow: 0 0 0 rgba(54, 214, 154, 0); } to { box-shadow: 0 0 12px rgba(54, 214, 154, .8); } }
 .icard.awake { outline: 2px solid rgba(125, 255, 185, .6); outline-offset: -5px; }

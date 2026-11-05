@@ -119,8 +119,9 @@
     const cp = opt.lv === undefined ? S.data.items.copies[id] || 0 : 0;
     const up = opt.lv === undefined && canUp(id);
     const aw = it.sp && lv >= IT.LV_MAX;
+    const op = owner && S.playerById[owner]; // 装備している選手
     return `<div class="icard r-${it.rarity}${up ? ' can-up' : ''}${aw ? ' awake' : ''}${opt.cls ? ' ' + opt.cls : ''}" ${opt.attr || ''}>
-      <div class="ic-art">${itemSvg(ty)}</div>
+      <div class="ic-art">${itemSvg(ty)}${op ? photo(op, 'ic-face') : ''}</div>
       <span class="ic-rar">${it.rarity}</span>
       ${cp ? `<span class="ic-cp" title="強化に使える同じアイテム">×${cp}</span>` : ''}
       ${stars(lv)}
@@ -128,7 +129,7 @@
       <small class="ic-type">${esc(ty.name)}</small>
       <div class="ic-effs">${effList(it, lv).map(e => `<span>${esc(e)}</span>`).join('')}</div>
       ${it.sp ? `<small class="ic-sp">◆ ${esc(IT.SP[it.sp])}${aw ? `<em>★5：${esc(IT.SP5[it.sp])}</em>` : ''}</small>` : ''}
-      ${owner ? `<small class="ic-own">👤 ${esc(S.playerById[owner].name)}</small>` : ''}
+      ${op ? `<small class="ic-own" style="${teamStyle(S.teamById[op.team])}">${photo(op, 'xs')}<span>${esc(op.name)}</span></small>` : ''}
       ${up ? '<span class="ic-up">▲ 強化できる</span>' : ''}
       ${opt.extra || ''}
     </div>`;
