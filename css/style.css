@@ -344,6 +344,27 @@ body.playing { overflow: hidden; }
 .help h3 { margin: 0 0 6px; font-size: 15px; }
 .help p, .help li { font-size: 13px; color: var(--mute); margin: 4px 0; }
 .help b { color: var(--ink); }
+/* あそびかた：タブ・1行まとめ・くわしく・ボタンの早見表 */
+.help-tabs { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; padding: 6px 0; background: var(--bg); }
+.help-tabs .chip { padding: 8px 4px; font-size: 12px; line-height: 1.3; }
+.help h3 { display: flex; align-items: center; gap: 8px; }
+.help .hi { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--panel-2); font-size: 16px; flex: none; }
+.help p.sum { color: var(--ink); font-size: 14px; line-height: 1.55; }
+.help details { margin-top: 6px; }
+.help summary { cursor: pointer; width: fit-content; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 700; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); list-style: none; }
+.help summary::-webkit-details-marker { display: none; }
+.help summary::before { content: '▼ '; font-size: 10px; }
+.help details[open] summary::before { content: '▲ '; }
+.help details > *:not(summary) { margin-top: 6px; }
+.hb-grid { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; color: var(--ink); margin-bottom: 4px; }
+.hb-h { font-size: 12px; padding: 3px 6px; border-radius: 6px; text-align: center; }
+.hb-h.off { background: rgba(232, 120, 40, .2); color: #ffb37a; }
+.hb-h.def { background: rgba(74, 163, 255, .18); color: #8cc6ff; }
+.hb-btn { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; font-style: normal; font-size: 11px; font-weight: 900; color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .5); background: radial-gradient(circle at 35% 30%, var(--c1), var(--c2)); box-shadow: 0 2px 6px rgba(0, 0, 0, .4); }
+.hb-btn.b-b { --c1: #ffa24a; --c2: #d8461a; }
+.hb-btn.b-a { --c1: #4aa3ff; --c2: #1e4fb6; }
+.hb-btn.b-c { --c1: #ffd45a; --c2: #c27f0c; color: #2a1a00; text-shadow: none; }
 .help ul { margin: 0; padding-left: 18px; }
 .m3d-help { display: none; max-height: 55vh; overflow: auto; margin-top: 4px; }
 .m3d-menu.help-open .m3d-help { display: block; }
