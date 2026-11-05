@@ -145,20 +145,20 @@
     const dlg = document.getElementById('dlg');
     dlg.innerHTML = `
       <div class="sheet isheet">
-        <button class="close" aria-label="とじる">×</button>
+        <button class="close" aria-label="閉じる">×</button>
         <div class="isheet-card${justUp ? ' just-up' : ''}">${itemCard(id, { cls: 'big', lv })}</div>
         <div class="up-box">
           <h3>強化 ${stars(lv)}</h3>
-          ${max ? `<p class="hint">★5（最大）です。${it.sp ? `とくべつな効果も強くなっています：<b>${esc(IT.SP5[it.sp])}</b>` : ''}<br>これからは同じアイテムが出たらコインになります。</p>`
+          ${max ? `<p class="hint">★5（最大）です。${it.sp ? `特別な効果も強くなっています：<b>${esc(IT.SP5[it.sp])}</b>` : ''}<br>これ以降、同じアイテムはコインになります。</p>`
             : `<div class="up-cmp">
                 <div><small>いま ★${lv + 1}</small>${effList(it, lv).map(e => `<span>${esc(e)}</span>`).join('')}</div>
                 <b class="arrow">→</b>
                 <div class="next"><small>強化後 ★${lv + 2}</small>${effList(it, lv + 1).map(e => `<span>${esc(e)}</span>`).join('')}</div>
               </div>
-              ${it.sp && lv + 1 >= IT.LV_MAX ? `<p class="hint">★5 にすると、とくべつな効果も強くなります：<b>${esc(IT.SP5[it.sp])}</b></p>` : ''}
-              <p class="hint">使う同じアイテム：<b>${need}こ</b>（持っている ${cp}こ）　${S.copiesNeeded(id) ? `★5 まで あと ${S.copiesNeeded(id)}こ 集めよう` : '★5 まで集まっています'}</p>
-              <button class="btn primary wide" id="doUp" ${cp >= need ? '' : 'disabled'}>${cp >= need ? `★${lv + 2} に強化する` : `同じアイテムがあと ${need - cp}こ 必要`}</button>`}
-          <p class="hint">同じアイテムはガチャで出ます。★1→★2 に1こ、★3 に2こ、★4 に3こ、★5 に4こ（合計10こ）。</p>
+              ${it.sp && lv + 1 >= IT.LV_MAX ? `<p class="hint">★5 にすると、特別な効果も強くなります：<b>${esc(IT.SP5[it.sp])}</b></p>` : ''}
+              <p class="hint">使う同じアイテム：<b>${need}個</b>（所持 ${cp}個）　${S.copiesNeeded(id) ? `★5 まで あと ${S.copiesNeeded(id)}個` : '★5 まで集まっています'}</p>
+              <button class="btn primary wide" id="doUp" ${cp >= need ? '' : 'disabled'}>${cp >= need ? `★${lv + 2} に強化する` : `同じアイテムがあと ${need - cp}個 必要`}</button>`}
+          <p class="hint">同じアイテムはガチャで出ます。★1→★2 に1個、★3 に2個、★4 に3個、★5 に4個（合計10個）。</p>
         </div>
       </div>`;
     dlg.classList.add('open');
@@ -169,7 +169,7 @@
     if (b) b.onclick = () => {
       const err = S.upgrade(id);
       if (err) return toast(err);
-      toast(`${it.name} が ★${S.data.items.inv[id] + 1} になった！`);
+      toast(`${it.name} が ★${S.data.items.inv[id] + 1} に強化しました`);
       if (window.Sound && Sound.cheer) { Sound.unlock(); Sound.cheer(S.data.items.inv[id] >= IT.LV_MAX ? 0.9 : 0.5); }
       openItem(id, true);
     };
@@ -184,21 +184,21 @@
       ${header('ガチャ')}
       <section class="gacha-hero">
         <div class="gh-title">🎁 アイテムガチャ</div>
-        <p>バッシュ・リストバンド・マイボールなど100種類。選手につけると能力が上がります（1人5つまで、同じ種類は1つ）。同じアイテムを集めると ★5 まで強化できます。</p>
+        <p>バッシュ・リストバンド・マイボールなど100種類。選手に装備すると能力が上がります（1人5つまで、同じ種類は1つ）。同じアイテムを集めると ★5 まで強化できます。</p>
         <div class="gh-info"><span>今日の無料 <b>${free}</b> / ${C.FREE_PER_DAY}</span><span>SSR以上まで あと <b>${Math.max(1, C.PITY - it.pity)}</b> 回</span><span>持っているアイテム <b>${owned}</b> / ${IT.items.length}</span></div>
       </section>
       <div class="gacha-btns">
-        <button class="gbtn free" data-pull="free" ${free ? '' : 'disabled'}><b>無料で1回</b><small>${free ? `のこり ${free} 回` : 'また明日'}</small></button>
+        <button class="gbtn free" data-pull="free" ${free ? '' : 'disabled'}><b>無料で1回</b><small>${free ? `残り ${free} 回` : 'また明日'}</small></button>
         <button class="gbtn" data-pull="coin1" ${S.data.coins >= C.COIN_1 ? '' : 'disabled'}><b>1回</b><small>🪙 ${C.COIN_1}</small></button>
-        <button class="gbtn ten" data-pull="coin10" ${S.data.coins >= C.COIN_10 ? '' : 'disabled'}><b>10回</b><small>🪙 ${C.COIN_10}・SR以上 1つかくてい</small></button>
+        <button class="gbtn ten" data-pull="coin10" ${S.data.coins >= C.COIN_10 ? '' : 'disabled'}><b>10回</b><small>🪙 ${C.COIN_10}・SR以上 1つ確定</small></button>
       </div>
       <div id="gres" class="gres"></div>
       <div class="gacha-foot">
         <button class="btn" data-go="items">🎒 持ち物を見る</button>
         <details class="rates"><summary>出る確率</summary>
           <p>N 50% ／ R 30% ／ SR 15% ／ SSR 4.5% ／ UR 0.5%</p>
-          <p>${C.PITY}回つづけてSSR以上が出なかったら、次はかならずSSR以上。</p>
-          <p>同じアイテムがまた出たら、強化用にたまります（持ち物でカードを押して強化。★5 まで合計10こ）。★5 に足りたあとはコイン（N 20・R 40・SR 80・SSR 200・UR 500）。</p>
+          <p>${C.PITY}回連続でSSR以上が出なかった場合、次は必ずSSR以上。</p>
+          <p>同じアイテムがまた出たら、強化用に貯まります（アイテム画面でカードを押して強化。★5 まで合計10個）。★5 の分が貯まった後はコイン（N 20・R 40・SR 80・SSR 200・UR 500）。</p>
         </details>
       </div>`;
     bind();
@@ -233,10 +233,10 @@
       .sort((a, b) => RAR_ORDER[IT.byId[a].rarity] - RAR_ORDER[IT.byId[b].rarity] || a.localeCompare(b));
     $app.innerHTML = `
       ${header('持ち物（アイテム）')}
-      <p class="hint">カードを押すと強化できます（同じアイテムを使って ★5 まで）。選手の画面（チーム・育成 → 選手をタップ）でつけられます。持っているのは ${Object.keys(inv).length} / ${IT.items.length} 種類。</p>
-      ${Object.keys(inv).some(canUp) ? `<p class="up-note">▲ 強化できるアイテムが ${Object.keys(inv).filter(canUp).length}こ あります</p>` : ''}
+      <p class="hint">カードを押すと強化できます（同じアイテムを使って ★5 まで）。選手の画面（チーム・育成 → 選手をタップ）で装備できます。持っているのは ${Object.keys(inv).length} / ${IT.items.length} 種類。</p>
+      ${Object.keys(inv).some(canUp) ? `<p class="up-note">▲ 強化できるアイテムが ${Object.keys(inv).filter(canUp).length}個 あります</p>` : ''}
       <div class="chips itabs">
-        <button class="chip ${itemTab === 'all' ? 'on' : ''}" data-tab="all">すべて</button>
+        <button class="chip ${itemTab === 'all' ? 'on' : ''}" data-tab="all">全て</button>
         ${IT.TYPES.map(t => `<button class="chip ${itemTab === t.id ? 'on' : ''}" data-tab="${t.id}">${t.name}</button>`).join('')}
       </div>
       ${ids.length ? `<div class="igrid">${ids.map(id => itemCard(id, { attr: `data-item="${id}" role="button" tabindex="0"`, cls: 'pickable' })).join('')}</div>`
@@ -256,14 +256,14 @@
       .sort((a, b) => RAR_ORDER[IT.byId[a].rarity] - RAR_ORDER[IT.byId[b].rarity] || IT.byId[a].type.localeCompare(IT.byId[b].type));
     dlg.innerHTML = `
       <div class="sheet">
-        <button class="close" aria-label="もどる">‹</button>
-        <h2 class="picker-title">${esc(p.name)} につける（${mine.length}/5）</h2>
-        <p class="hint">同じ種類をつけているときは入れかえます。ほかの選手がつけているアイテムは、この選手に移ります。</p>
+        <button class="close" aria-label="戻る">‹</button>
+        <h2 class="picker-title">${esc(p.name)} に装備（${mine.length}/5）</h2>
+        <p class="hint">同じ種類を装備している場合は入れ替えます。他の選手が装備しているアイテムは、この選手に移ります。</p>
         ${ids.length ? `<div class="igrid">${ids.map(id => {
           const swap = mineTypes[IT.byId[id].type];
           return itemCard(id, { attr: `data-pick="${id}" role="button" tabindex="0"`, cls: 'pickable',
-            extra: swap ? `<span class="tag-swap">「${esc(IT.byId[swap].name)}」と入れかえ</span>` : '' });
-        }).join('')}</div>` : '<div class="panel center"><p>つけられるアイテムがありません。</p></div>'}
+            extra: swap ? `<span class="tag-swap">「${esc(IT.byId[swap].name)}」と入れ替え</span>` : '' });
+        }).join('')}</div>` : '<div class="panel center"><p>装備できるアイテムがありません。</p></div>'}
       </div>`;
     dlg.classList.add('open');
     dlg.querySelector('.close').onclick = () => openPlayer(pid);
@@ -271,7 +271,7 @@
     dlg.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
       const err = S.equip(pid, b.dataset.pick);
       if (err) return toast(err);
-      toast(`${IT.byId[b.dataset.pick].name} をつけました`);
+      toast(`${IT.byId[b.dataset.pick].name} を装備しました`);
       openPlayer(pid);
     });
   }
@@ -290,7 +290,7 @@
 
   function header(title, back = true) {
     return `<header class="bar">
-      ${back ? '<button class="back" data-go="home" aria-label="もどる">‹</button>' : '<span></span>'}
+      ${back ? '<button class="back" data-go="home" aria-label="戻る">‹</button>' : '<span></span>'}
       <h1>${title}</h1>
       <span class="coins">🪙 ${S.data.coins}</span>
     </header>`;
@@ -303,12 +303,12 @@
     $app.innerHTML = `
       <section class="welcome">
         <div class="title-logo"><img src="icons/logo.png" alt="Bリーグ ストーム"><span>Bリーグ</span><b>STORM</b></div>
-        <p class="lead">${esc(window.BP_DATA.season)} シーズンの選手で、自分だけのチームをそだてよう。</p>
+        <p class="lead">${esc(window.BP_DATA.season)} シーズンの選手で、自分だけのチームを育てよう。</p>
         <div class="panel restore">
           <span>前のスマホやインストールし直す前の記録がある人は</span>
           <label class="btn">バックアップから戻す<input type="file" accept=".json,application/json" id="bkLoad" hidden></label>
         </div>
-        <label class="field">GMの名前（なくてもOK）<input id="gm" maxlength="12" placeholder="例：あきら"></label>
+        <label class="field">GMの名前（なくてもOK）<input id="gm" maxlength="12" placeholder="例：アキラ"></label>
         ${groups.map(([g, ts]) => `<h2 class="sec">${g}</h2>
           <div class="team-grid">${ts.map(t => `
             <button class="team-pick" data-team="${t.id}" style="${teamStyle(t)}">
@@ -355,7 +355,7 @@
           <b>VS ${esc(S.teamById[susp.opp].short)}　${susp.score[0]} - ${susp.score[1]}</b>
           <small>${susp.q > 4 ? 'OT' : susp.q + 'Q'} 残り ${Math.floor(susp.clock / 60)}:${String(Math.floor(susp.clock % 60)).padStart(2, '0')}</small></div>
         <button class="btn primary" id="resume">再開する</button>
-        <button class="btn" id="discard">やめる</button>
+        <button class="btn" id="discard">破棄</button>
       </div>` : next ? `
       <button class="big-btn" data-go="pre" data-arg="${next.id}">
         <small>シーズン 第${sea.game + 1}戦 / ${sea.schedule.length}</small>
@@ -370,8 +370,8 @@
         <button data-go="items"><b>🎒</b>アイテム</button>
         <button data-go="free"><b>⚔️</b>フリー対戦</button>
         <button data-go="table"><b>📊</b>順位表</button>
-        <button data-go="help"><b>📖</b>あそびかた</button>
-        <button data-go="settings"><b>⚙️</b>せってい</button>
+        <button data-go="help"><b>📖</b>遊び方</button>
+        <button data-go="settings"><b>⚙️</b>設定</button>
       </div>`;
     bind();
     const rs = document.getElementById('resume');
@@ -393,7 +393,7 @@
     const lineup = S.lineup();
     $app.innerHTML = `
       ${header('チーム・育成')}
-      <p class="hint">選手をタップすると育成ができます。「⇄ 交代」で、だれと入れかえるかを選べます。</p>
+      <p class="hint">選手をタップすると育成ができます。「⇄ 交代」で、誰と入れ替えるかを選べます。</p>
       <h2 class="sec">スタメン</h2>
       <div class="cards">${lineup.map(id => `<div class="pcard-wrap">${card(id)}<button class="swap-btn" data-swap="${id}">⇄ 交代</button></div>`).join('')}</div>
       <h2 class="sec">ベンチ（${ids.length - lineup.length}人）</h2>
@@ -414,9 +414,9 @@
     const dlg = document.getElementById('dlg');
     dlg.innerHTML = `
       <div class="sheet">
-        <button class="close" aria-label="とじる">×</button>
+        <button class="close" aria-label="閉じる">×</button>
         <h2 class="swap-h">${esc(p.name)} <small>${esc(p.pos)} ・ OVR ${S.rating(id).ovr}</small></h2>
-        <p class="hint">${isStarter ? 'かわりにスタメンに入れる選手を選んでください（同じポジションが上）' : 'ベンチにさげるスタメンを選んでください（同じポジションが上）'}</p>
+        <p class="hint">${isStarter ? '代わりにスタメンに入れる選手を選んでください（同じポジションが上）' : 'ベンチに下げるスタメンを選んでください（同じポジションが上）'}</p>
         <div class="swap-list">${cands.map(c => { const q = S.playerById[c.x]; return `
           <button class="swap-row${c.same ? ' same' : ''}" data-to="${c.x}">${photo(q, 'sm')}
             <span class="nm"><b>${esc(q.name)}</b><small>${esc(q.pos)}${c.same ? ' ・ 同じポジション' : ''}</small></span>
@@ -464,7 +464,7 @@
     const dlg = document.getElementById('dlg');
     dlg.innerHTML = `
       <div class="sheet" style="${teamStyle(t)}">
-        <button class="close" aria-label="とじる">×</button>
+        <button class="close" aria-label="閉じる">×</button>
         <div class="sheet-top">
           ${photo(p, 'lg')}
           <div>
@@ -492,7 +492,7 @@
         ${o ? `<div class="eqsec">
           <h3>アイテム <small>${S.equipOf(id).length} / 5</small></h3>
           <div class="eqlist">${S.equipOf(id).map(iid => itemCard(iid, { owner: null, cls: 'mini', extra: `<button class="eq-x" data-unequip="${iid}" aria-label="外す">×</button>` })).join('')}
-            ${S.equipOf(id).length < 5 ? '<button class="eq-add" id="eqAdd">＋<small>つける</small></button>' : ''}</div>
+            ${S.equipOf(id).length < 5 ? '<button class="eq-add" id="eqAdd">＋<small>装備</small></button>' : ''}</div>
         </div>` : ''}
         ${o ? `<button class="btn wide" id="toggleStarter">${isStarter ? '⇄ 交代する（ベンチの選手を選ぶ）' : '⇄ スタメンに入れる（交代する選手を選ぶ）'}</button>` : ''}
       </div>`;
@@ -570,7 +570,7 @@
     bind();
   }
 
-  const lvName = v => ['', 'とてもよわい', 'よわい', 'すこしよわい', 'ふつう', 'ふつう', 'すこしつよい', 'つよい', 'とてもつよい', 'すごくつよい', 'さいきょう'][v];
+  const lvName = v => ['', 'とても弱い', '弱い', '少し弱い', '普通', '普通', '少し強い', '強い', 'とても強い', '非常に強い', '最強'][v];
 
   // ---------- 自分の BGM（このスマホの中だけに保存。GitHub などには送らない） ----------
   const BgmStore = (() => {
@@ -608,7 +608,7 @@
   async function pickBgm(k, file) {
     if (!file) return;
     if (file.size > 60 * 1024 * 1024) return toast('ファイルが大きすぎます（60MBまで）');
-    toast('曲を読みこみ中…');
+    toast('曲を読み込み中…');
     try {
       const data = await file.arrayBuffer();
       Sound.unlock();
@@ -619,7 +619,7 @@
     } catch (e) {
       // 前にえらんでいた曲にもどす
       BgmStore.get(k).then(v => Sound.setCustom(k, v && v.data ? v.data : null)).catch(() => Sound.setCustom(k, null));
-      toast('この曲は読みこめませんでした（mp3・m4a などの音声ファイルをえらんでね）');
+      toast('この曲は読み込めませんでした（mp3・m4a などの音声ファイルを選んでください）');
     }
     render();
   }
@@ -666,9 +666,9 @@
     }
     const n = Object.keys(d.owned).length;
     const when = b.at ? new Date(b.at).toLocaleString('ja-JP') : '日時不明';
-    if (!confirm(`${when} のバックアップ（選手 ${n}人・コイン ${d.coins || 0}）に戻します。\nいまの記録は上書きされて消えます。よろしいですか？`)) return;
-    try { localStorage.setItem(BACKUP_KEY, JSON.stringify(d)); } catch (e) { return toast('保存できませんでした（空き容量を確認してね）'); }
-    alert('バックアップから戻しました。アプリを読みこみ直します。');
+    if (!confirm(`${when} のバックアップ（選手 ${n}人・コイン ${d.coins || 0}）に戻します。\n現在の記録は上書きされて消えます。よろしいですか？`)) return;
+    try { localStorage.setItem(BACKUP_KEY, JSON.stringify(d)); } catch (e) { return toast('保存できませんでした（空き容量を確認してください）'); }
+    alert('バックアップから戻しました。アプリを読み込み直します。');
     location.reload();
   }
 
@@ -676,7 +676,7 @@
     const d = S.data;
     const opt = (key, vals) => vals.map(([v, l]) => `<button class="chip ${d[key] === v ? 'on' : ''}" data-set="${key}" data-val="${v}">${l}</button>`).join('');
     $app.innerHTML = `
-      ${header('せってい')}
+      ${header('設定')}
       <div class="panel">
         <h3>CPUの強さ <b id="lvName">${lvName(d.cpuLv)}</b></h3>
         <div class="lv-row">
@@ -685,21 +685,21 @@
           <button class="chip" data-lv="1">＋</button>
           <b class="lv-num" id="lvNum">${d.cpuLv}</b>
         </div>
-        <p class="hint">よわくすると、CPUの能力・スティール・シュートが下がり、自分のシュートゲージの緑が広くなります。</p>
+        <p class="hint">弱くすると、CPUの能力・スティール・シュートが下がり、自分のシュートゲージの緑が広くなります。</p>
         <h3>1クォーターの長さ</h3><div class="chips">${opt('quarterMin', [[2, '2分'], [3, '3分'], [5, '5分']])}</div>
         <h3>効果音・観客の声</h3><div class="chips">${opt('sound', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGM</h3><div class="chips">${opt('bgm', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGMの曲</h3>
-        <p class="hint">スマホに入っている曲（mp3・m4a など）を、オフェンスとディフェンスのBGMにできます。曲はこのスマホの中だけに保存され、ほかの人には届きません。えらばないときは、アプリで作った曲が流れます。</p>
+        <p class="hint">スマホに入っている曲（mp3・m4a など）を、オフェンスとディフェンスのBGMにできます。曲はこのスマホの中だけに保存され、他の人には届きません。選ばない場合は、アプリで作った曲が流れます。</p>
         ${BGM_MODES.map(([k, l]) => `<div class="mybgm">
           <span>${l}：<b>${myBgm[k] ? '🎵 ' + esc(myBgm[k]) : 'アプリの曲'}</b></span>
-          <label class="btn">曲をえらぶ<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" data-bgmfile="${k}" hidden></label>
-          ${myBgm[k] ? `<button class="btn" data-bgmreset="${k}">アプリの曲にもどす</button>` : ''}
+          <label class="btn">曲を選ぶ<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" data-bgmfile="${k}" hidden></label>
+          ${myBgm[k] ? `<button class="btn" data-bgmreset="${k}">アプリの曲に戻す</button>` : ''}
         </div>`).join('')}
       </div>
       <div class="panel">
         <h3>バックアップ</h3>
-        <p class="hint">選手・育成・コイン・アイテム・シーズンなどの記録を、1つのファイルに保存できます。<b>アプリを削除・インストールし直す前</b>や<b>スマホを変えるとき</b>は、かならず保存してね（BGMにえらんだ曲は入りません）。</p>
+        <p class="hint">選手・育成・コイン・アイテム・シーズンなどの記録を、1つのファイルに保存できます。<b>アプリを削除・インストールし直す前</b>や<b>スマホを変えるとき</b>は、必ず保存してください（BGMに選んだ曲は含まれません）。</p>
         <p class="hint">前回の保存：<b>${d.lastBackup ? esc(new Date(d.lastBackup).toLocaleString('ja-JP')) : 'まだありません'}</b></p>
         <div class="row2">
           <button class="btn primary" id="bkSave">バックアップを保存</button>
@@ -712,13 +712,13 @@
       </div>
       <div class="panel">
         <h3>アップデート</h3>
-        <p class="hint">いまのバージョン：<b>v${APP_VER}</b></p>
+        <p class="hint">現在のバージョン：<b>v${APP_VER}</b></p>
         <button class="btn" id="checkUpd">新しいバージョンがあるか確認する</button>
       </div>
       <div class="panel">
-        <h3>推しチームをえらびなおす</h3>
-        <p class="hint">記録・育成・コインがすべて消えます。</p>
-        <button class="btn danger" id="reset">最初からやりなおす</button>
+        <h3>推しチームを選び直す</h3>
+        <p class="hint">記録・育成・コインが全て消えます。</p>
+        <button class="btn danger" id="reset">最初からやり直す</button>
       </div>
       <p class="note">選手データ：B.LEAGUE公式サイト ${esc(window.BP_DATA.season)}（${esc(window.BP_DATA.updated)} 取得）<br>
       能力値はスタッツから自動で計算した、このアプリ独自のものです。</p>`;
@@ -748,11 +748,11 @@
       await Sound.setCustom(k, null);
       delete myBgm[k];
       try { await BgmStore.del(k); } catch (e) { /* 消せなくても次から使わない */ }
-      toast('アプリの曲にもどしました');
+      toast('アプリの曲に戻しました');
       render();
     });
     document.getElementById('reset').onclick = () => {
-      if (confirm('本当に最初からやりなおしますか？')) { S.reset(); go('home'); }
+      if (confirm('本当に最初からやり直しますか？')) { S.reset(); go('home'); }
     };
   }
 
@@ -762,10 +762,10 @@
   function offlineHtml() {
     if (!offline.on) return `<p class="hint">ネット上（https）で開くと、選手の写真などをスマホに保存して、オフラインでも遊べるようになります。</p>`;
     const { done, total, failed } = offline;
-    if (total && done >= total) return `<p class="ok">✅ オフラインでも遊べます（画像 ${total} 枚を保存ずみ）</p>`;
+    if (total && done >= total) return `<p class="ok">✅ オフラインでも遊べます（画像 ${total} 枚を保存済み）</p>`;
     const pct = total ? Math.floor(done / total * 100) : 0;
     return `<div class="bar"><i style="width:${pct}%"></i></div>
-      <p class="hint">${total ? `保存中… ${done} / ${total} 枚（${pct}%）` : '準備中…'}${failed ? `<br>${failed} 枚が取れませんでした。ネットにつないで開き直すと、つづきを取ります。` : ''}</p>`;
+      <p class="hint">${total ? `保存中… ${done} / ${total} 枚（${pct}%）` : '準備中…'}${failed ? `<br>${failed} 枚が取れませんでした。ネットにつないで開き直すと、続きを取得します。` : ''}</p>`;
   }
 
   function startOffline() {
@@ -789,7 +789,7 @@
   }
 
   // ---------- アップデート ----------
-  // 新しい版を公開すると、新しい sw.js が裏で読みこまれて待っている。それを見つけたらお知らせを出す
+  // 新しい版を公開すると、新しい sw.js が裏で読み込まれて待っている。それを見つけたらお知らせを出す
   const APP_VER = ((document.querySelector('script[src*="js/app.js"]') || {}).src || '').split('v=')[1] || '?';
   let updReg = null, updating = false;
 
@@ -801,7 +801,7 @@
       const w = reg.installing;
       if (w) w.addEventListener('statechange', () => { if (w.state === 'installed' && sw.controller) showUpdate(); });
     });
-    // 新しい版に切りかわったら読みこみ直す（ボタンを押したときだけ）
+    // 新しい版に切りかわったら読み込み直す（ボタンを押したときだけ）
     sw.addEventListener('controllerchange', () => { if (updating) location.reload(); });
     // アプリに戻ってきたときと、30分ごとに確認する
     document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(false); });
@@ -813,9 +813,9 @@
     updReg.update().then(() => {
       if (!byUser) return;
       if (updReg.waiting) showUpdate();
-      else if (updReg.installing) toast('新しいバージョンを読みこみ中です。少し待ってね');
-      else toast(`いまのバージョン（v${APP_VER}）が最新です`);
-    }).catch(() => { if (byUser) toast('確認できませんでした。ネットにつながっているか見てね'); });
+      else if (updReg.installing) toast('新しいバージョンを読み込み中です。しばらくお待ちください');
+      else toast(`現在のバージョン（v${APP_VER}）が最新です`);
+    }).catch(() => { if (byUser) toast('確認できませんでした。ネット接続を確認してください'); });
   }
 
   function showUpdate() {
@@ -826,7 +826,7 @@
     bar.id = 'updBar';
     bar.className = 'upd-bar';
     bar.innerHTML = `<span>✨ 新しいバージョンがあります</span>
-      <button class="go">アップデート</button><button class="later" aria-label="あとで">あとで</button>`;
+      <button class="go">アップデート</button><button class="later" aria-label="後で">後で</button>`;
     bar.querySelector('.go').onclick = () => {
       const w = updReg && updReg.waiting;
       if (!w) { location.reload(); return; }
@@ -843,7 +843,7 @@
   const hsec = (icon, title, sum, more = '') => `
       <section><h3><span class="hi">${icon}</span>${title}</h3>
         <p class="sum">${sum}</p>
-        ${more ? `<details><summary>くわしく</summary>${more}</details>` : ''}</section>`;
+        ${more ? `<details><summary>詳しく</summary>${more}</details>` : ''}</section>`;
   // ボタンの説明（こうげき・まもりで、ボタンの名前と役割が変わる）
   // rows：[ボタン（b-b 右下の大きいボタン／b-a その左／b-c その上）, 名前, 説明]
   const hbtns = (cls, icon, title, lead, rows, more) => `
@@ -851,66 +851,66 @@
         <p class="sum">${lead}</p>
         <div class="hb-list">${rows.map(([k, name, txt]) => `
           <div class="hb-row"><i class="hb-btn ${k}${name.length >= 5 ? ' long' : ''}">${name}</i><div><b>${name}</b><span>${txt}</span></div></div>`).join('')}</div>
-        <details><summary>くわしく</summary>${more}</details></section>`;
+        <details><summary>詳しく</summary>${more}</details></section>`;
   const HELP_MATCH = hsec('🕹', '動く', '左下を指でなぞると<b>十字キー</b>が出ます。黄色い輪の選手が動きます。',
-      `<p>操作する選手は自動で切りかわります（こうげき：ボールを持った選手／まもり：ボールを持った相手をマークする選手）。</p>`)
-    + hbtns('off', '🏀', 'こうげきのボタン', '<b>ボールを持っているとき</b>。右下の3つのボタンは、こう使います。', [
-      ['b-b', 'シュート', '長押しでゲージがたまる。<b>いちばん上（緑に光る）</b>で離すと「パーフェクト」で入りやすい。押しすぎて赤くなると入りにくい。'],
+      `<p>操作する選手は自動で切り替わります（オフェンス：ボールを持った選手／ディフェンス：ボールを持った相手をマークする選手）。</p>`)
+    + hbtns('off', '🏀', 'オフェンスのボタン', '<b>ボールを持っているとき</b>。右下の3つのボタンは、次のように使います。', [
+      ['b-b', 'シュート', '長押しでゲージが溜まる。<b>一番上（緑に光る）</b>で離すと「パーフェクト」で入りやすい。押しすぎて赤くなると入りにくい。'],
       ['b-a', 'パス', '十字キーの向きにいる味方へパス。コートの<b>味方をタップ</b>しても、その選手にパス。'],
       ['b-c', 'ドライブ', '長押しでダッシュ。相手の近くで使うと、抜けることがあります。'],
-    ], `<ul><li>ゴールの近くでシュート → <b>レイアップ</b>。勢いよく走りこんでシュート → <b>ダンク</b>（大きい選手・ドライブが得意な選手）。</li>
-        <li>十字キーをたおしていないときのパスは、いちばん空いている味方へ。</li>
+    ], `<ul><li>ゴールの近くでシュート → <b>レイアップ</b>。勢いよく走り込んでシュート → <b>ダンク</b>（大きい選手・ドライブが得意な選手）。</li>
+        <li>十字キーを倒していないときのパスは、一番空いている味方へ。</li>
         <li>疲れている選手や、相手が近くにいるときは入りにくくなります。</li></ul>`)
-    + hbtns('def', '🛡', 'まもりのボタン', '<b>相手がボールを持っているとき</b>。同じ3つのボタンの<b>名前と役割が変わります</b>。', [
-      ['b-b', 'ブロック', 'ジャンプ。相手がシュートするときに近くでとぶと、止められることがあります。こぼれたボールのときは「ジャンプ」と出て、リバウンドをとります。'],
-      ['b-a', 'スティール', 'ボールを持った相手の近くで押すと、ボールをうばえることがあります。やりすぎるとファウル。'],
-      ['b-c', 'ディフェンス', '長押ししているあいだ、マークする相手に自動でついていきます。十字キーで少しずらせます。'],
+    + hbtns('def', '🛡', 'ディフェンスのボタン', '<b>相手がボールを持っているとき</b>。同じ3つのボタンの<b>名前と役割が変わります</b>。', [
+      ['b-b', 'ブロック', 'ジャンプ。相手がシュートするときに近くで跳ぶと、止められることがあります。こぼれたボールのときは「ジャンプ」と出て、リバウンドを取ります。'],
+      ['b-a', 'スティール', 'ボールを持った相手の近くで押すと、ボールを奪えることがあります。やりすぎるとファウル。'],
+      ['b-c', 'ディフェンス', '長押ししている間、マークする相手に自動でついて行きます。十字キーで少しずらせます。'],
     ], `<ul><li>コートの<b>味方をタップ</b>すると、その選手を操作できます。</li>
-        <li>疲れている選手は、足がおそくなり、スティールも少し弱くなります。</li></ul>`)
+        <li>疲れている選手は、足が遅くなり、スティールも少し弱くなります。</li></ul>`)
     + hsec('🚩', 'フリースロー・スローイン', 'フリースローは<b>シュートボタン</b>、スローインは<b>パスボタン</b>（「スローイン」と出ます）。',
       `<ul><li>シュート中にファウルされると<b>フリースロー</b>。</li>
         <li>それ以外のファウル・アウト・24秒は<b>スローイン</b>。</li>
         <li>チームファウル（得点ボードの F）が5つ目からは、シュート中でなくても<b>フリースロー1本</b>。F4 から赤くなります。</li></ul>`)
-    + hsec('🔋', '疲れと選手交代', '得点カードの下の<b>バー</b>が疲れ（緑→黄→赤）。左上の「Ⅱ」→「<b>選手交代</b>」で休ませよう。',
-      `<ul><li>疲れると足がおそくなり、シュートや守りも少し弱くなります。ベンチで休むと回復。クォーターの間にも少し回復します。</li>
-        <li>交代は、下げる選手 → 入れる選手 の順にタップ。ボールが止まったとき（得点のあと・スローインの前など）に入れかわります。</li>
+    + hsec('🔋', '疲れと選手交代', '得点カードの下の<b>バー</b>が疲れ（緑→黄→赤）。左上の「Ⅱ」→「<b>選手交代</b>」で休ませましょう。',
+      `<ul><li>疲れると足が遅くなり、シュートや守りも少し弱くなります。ベンチで休むと回復。クォーターの間にも少し回復します。</li>
+        <li>交代は、下げる選手 → 入れる選手 の順にタップ。ボールが止まったとき（得点の後・スローインの前など）に入れ替わります。</li>
         <li>相手のチームも、疲れたら交代します。</li></ul>`)
-    + hsec('⏸', '中断と再開', '左上の「Ⅱ」→「中断して、あとで再開」。ホームの「再開する」でつづきから。',
-      `<p>アプリを閉じてしまっても、つづきから遊べます。</p>`)
+    + hsec('⏸', '中断と再開', '左上の「Ⅱ」→「中断して、後で再開」。ホームの「再開する」で続きから。',
+      `<p>アプリを閉じてしまっても、続きから遊べます。</p>`)
     + hsec('⌨️', 'パソコンのキー', '移動：WASD／矢印　J：パス・スティール　K（スペース）：シュート・ブロック　L：ドライブ・ディフェンス');
   const HELP_GROW = hsec('🏆', 'シーズン', 'ホームの大きなボタンで、次の試合へ。勝つほど順位が上がります（「順位表」で見られます）。',
       `<ul><li>「フリー対戦」は、好きなチームと練習試合。</li>
         <li>試合でコインがもらえます（勝ち 150・負け 60、シーズンの試合は +20）。</li></ul>`)
-    + hsec('📈', '選手を育てる', '試合で XP がたまってレベルアップ → 育成pt。「チーム・育成」で選手をタップして能力を上げよう。',
-      `<ul><li>試合に出た選手（交代で入った選手も）に XP が入ります。活やくするほど多め、勝つと1.3倍。</li>
-        <li>スタメンの「⇄ 交代」で、だれと入れかえるか選べます。</li></ul>`)
+    + hsec('📈', '選手を育てる', '試合で XP が貯まってレベルアップ → 育成pt。「チーム・育成」で選手をタップして能力を上げましょう。',
+      `<ul><li>試合に出た選手（交代で入った選手も）に XP が入ります。活躍するほど多め、勝つと1.3倍。</li>
+        <li>スタメンの「⇄ 交代」で、誰と入れ替えるか選べます。</li></ul>`)
     + hsec('🎴', 'スカウト', `🪙 ${SCOUT_COST} で、新しい選手が1人チームに加わります。`,
       `<p>OVR の高い選手ほど出にくくなっています。</p>`)
-    + hsec('🎁', 'ガチャ', '1日3回 無料。そのあとはコイン（1回 🪙100、10回 🪙900）。',
+    + hsec('🎁', 'ガチャ', '1日3回 無料。その後はコイン（1回 🪙100、10回 🪙900）。',
       `<ul><li>出やすさ：N 50%・R 30%・SR 15%・SSR 4.5%・UR 0.5%</li>
-        <li>30回つづけて SSR 以上が出なかったら、次はかならず SSR 以上。</li></ul>`)
-    + hsec('🎒', 'アイテムをつける', '選手の画面（チーム・育成 → 選手をタップ）でつけます。1人5つまで、同じ種類は1つ。',
-      `<p>SSR・UR には「◆」のとくべつな効果がついています（試合の大事な場面で強くなる、など）。</p>`)
-    + hsec('⭐', 'アイテムの強化', '同じアイテムが出たら「×2」とたまります。「アイテム」でカードを押すと強化（★5 まで）。',
-      `<ul><li>使う数：★2 に1こ、★3 に2こ、★4 に3こ、★5 に4こ（合計10こ）。</li>
-        <li>★が上がるごとに効果が強くなります。SSR・UR を ★5 にすると、とくべつな効果も強くなります。</li>
-        <li>★5 に足りたあとに同じアイテムが出たら、コインになります。</li></ul>`);
-  const HELP_ETC = hsec('💾', 'バックアップ（だいじ！）', '「せってい」→「バックアップ」で<b>ファイルに保存</b>。アプリを入れなおす前や、スマホを変える前に。',
-      `<ul><li>もどすときは「ファイルから戻す」（はじめの画面にもあります）。</li>
-        <li>アプリを消すと、記録・コイン・選手も消えます。ときどき保存しておこう。</li></ul>`)
-    + hsec('💪', 'CPUの強さ', '勝てないとき・かんたんすぎるときは「せってい」→「CPUの強さ」で調節。')
-    + hsec('🎵', '音とBGM', '「せってい」で効果音・BGM のオン/オフ。<b>自分の曲</b>もえらべます。',
-      `<ul><li>「BGMの曲」で、スマホの中の曲をこうげき用・まもり用にえらべます。</li>
-        <li>「1クォーターの長さ」も「せってい」で変えられます。</li></ul>`)
+        <li>30回連続で SSR 以上が出なかった場合、次は必ず SSR 以上。</li></ul>`)
+    + hsec('🎒', 'アイテムの装備', '選手の画面（チーム・育成 → 選手をタップ）で装備します。1人5つまで、同じ種類は1つ。',
+      `<p>SSR・UR には「◆」の特別な効果が付いています（試合の大事な場面で強くなる、など）。</p>`)
+    + hsec('⭐', 'アイテムの強化', '同じアイテムが出たら「×2」と貯まります。「アイテム」でカードを押すと強化（★5 まで）。',
+      `<ul><li>使う数：★2 に1個、★3 に2個、★4 に3個、★5 に4個（合計10個）。</li>
+        <li>★が上がるごとに効果が強くなります。SSR・UR を ★5 にすると、特別な効果も強くなります。</li>
+        <li>★5 の分が貯まった後に同じアイテムが出たら、コインになります。</li></ul>`);
+  const HELP_ETC = hsec('💾', 'バックアップ（重要）', '「設定」→「バックアップ」で<b>ファイルに保存</b>。アプリを入れ直す前や、スマホを変える前に。',
+      `<ul><li>戻すときは「ファイルから戻す」（最初の画面にもあります）。</li>
+        <li>アプリを消すと、記録・コイン・選手も消えます。定期的に保存しておきましょう。</li></ul>`)
+    + hsec('💪', 'CPUの強さ', '勝てないとき・簡単すぎるときは「設定」→「CPUの強さ」で調節。')
+    + hsec('🎵', '音とBGM', '「設定」で効果音・BGM のオン/オフ。<b>自分の曲</b>も選べます。',
+      `<ul><li>「BGMの曲」で、スマホの中の曲をオフェンス用・ディフェンス用に選べます。</li>
+        <li>「1クォーターの長さ」も「設定」で変えられます。</li></ul>`)
     + hsec('🔄', 'アップデート', '新しい版が出ると［アップデート］が出ます。押すと最新に。',
-      `<p>出ないときは「せってい」→「アップデート」の「確認する」。</p>`);
-  const HELP_TABS = [['match', '🏀 試合のそうさ', HELP_MATCH], ['grow', '📈 そだてる', HELP_GROW], ['etc', '⚙️ その他', HELP_ETC]];
+      `<p>出ないときは「設定」→「アップデート」の「確認する」。</p>`);
+  const HELP_TABS = [['match', '🏀 試合の操作', HELP_MATCH], ['grow', '📈 育成', HELP_GROW], ['etc', '⚙️ その他', HELP_ETC]];
   const HELP = `<div class="help">${HELP_MATCH}</div>`; // 試合中の「操作説明」は、試合のそうさだけ
   let helpTab = 'match';
 
   function renderHelp() {
     const t = HELP_TABS.find(x => x[0] === helpTab) || HELP_TABS[0];
-    $app.innerHTML = `${header('あそびかた')}
+    $app.innerHTML = `${header('遊び方')}
       <div class="help-tabs">${HELP_TABS.map(([id, name]) => `<button class="chip ${id === t[0] ? 'on' : ''}" data-htab="${id}">${name}</button>`).join('')}</div>
       <div class="help">${t[2]}</div>`;
     bind();
@@ -938,10 +938,10 @@
           <div class="lrow">${photo(S.playerById[p.pid], 'sm')}<span class="pos">${SLOTS[i]}</span><span class="nm">${esc(p.name)}</span><b>${p.r.ovr}</b></div>`).join('')}</div>`).join('')}
       </div>
       <button class="big-btn" id="tip"><span>ティップオフ！</span></button>
-      <p class="hint center">操作がわからないときは、ホームの「📖 あそびかた」か、試合中の一時停止（Ⅱ）→「操作説明」を見てね。</p>`;
+      <p class="hint center">操作がわからないときは、ホームの「📖 遊び方」か、試合中の一時停止（Ⅱ）→「操作説明」を見てください。</p>`;
     bind();
     document.getElementById('tip').onclick = () => {
-      if (S.data.suspended && !confirm('中断した試合があります。新しい試合をはじめると消えますが、いいですか？')) return;
+      if (S.data.suspended && !confirm('中断した試合があります。新しい試合を始めると消えますが、よろしいですか？')) return;
       delete S.data.suspended;
       Sound.unlock(); // スマホはボタンを押したときでないと音が出せない
       match = { st: Game.create(me, cpu, Math.min(S.data.quarterMin, 5)), free, opp };
@@ -955,7 +955,7 @@
     const opp = S.teamById[sv.opp];
     const me = sideOf(sv.home.filter(id => S.data.owned[id]), myTeam(), true, true);
     const cpu = sideOf(sv.away, opp, false, true);
-    if (me.players.length < 5) { alert('選手がそろわないので再開できません'); delete S.data.suspended; S.save(); return render(); }
+    if (me.players.length < 5) { alert('選手が揃わないため再開できません'); delete S.data.suspended; S.save(); return render(); }
     const st = Game.create(me, cpu, sv.qLen / 60);
     Object.assign(st, { score: sv.score, q: sv.q, clock: sv.clock, qScores: sv.qScores, poss: sv.poss });
     [0, 1].forEach(sd => Object.keys(sv.box[sd] || {}).forEach(pid => { st.box[sd][pid] = sv.box[sd][pid]; }));
@@ -965,7 +965,7 @@
 
   async function renderMatch() {
     const m = match;
-    $app.innerHTML = '<div class="m3d" id="m3d"><div class="m3d-loading">読みこみ中…</div></div>';
+    $app.innerHTML = '<div class="m3d" id="m3d"><div class="m3d-loading">読み込み中…</div></div>';
     document.body.classList.add('playing');
     if (!window.Match3D) await new Promise(r => window.addEventListener('match3d-ready', r, { once: true }));
     if (match !== m) return;
@@ -1036,7 +1036,7 @@
       <section class="result ${win ? 'win' : 'lose'}">
         <div class="final"><span>${esc(myName())}</span><b>${st.score[0]} - ${st.score[1]}</b><span>${esc(opp.short)}</span></div>
         <div class="qs">${qs.map((s, i) => `<span>${i < 4 ? i + 1 + 'Q' : 'OT'} ${s[0]}-${s[1]}</span>`).join('')}</div>
-        <div class="reward">🪙 +${coins}${lvUps.length ? ` ・ レベルアップ ${[...new Set(lvUps)].length}人！（育成ptで能力を上げよう）` : ''}</div>
+        <div class="reward">🪙 +${coins}${lvUps.length ? ` ・ レベルアップ ${[...new Set(lvUps)].length}人！（育成ptで能力を上げましょう）` : ''}</div>
       </section>
       ${mvp ? `<div class="mvp">${photo(S.playerById[mvp.p.pid])}<div><small>MVP</small><b>${esc(mvp.p.name)}</b>
         <span>${mvp.b.pts}点 ${mvp.b.reb}RB ${mvp.b.ast}AST</span></div></div>` : ''}
@@ -1053,7 +1053,7 @@
   // ---------- 共通 ----------
   function bind() {
     $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
-      if (view === 'match' && match && !confirm('試合をやめますか？（記録されません）')) return;
+      if (view === 'match' && match && !confirm('試合を終了しますか？（記録されません）')) return;
       match = null;
       go(b.dataset.go, b.dataset.arg);
     });

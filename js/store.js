@@ -83,7 +83,7 @@ window.Store = (() => {
   const equipOf = pid => (data.items.equip[pid] || []).filter(id => IT.byId[id] && id in data.items.inv);
 
   // アイテムの効果を合計（★が上がるごとに、そのアイテムの効果が全部 約20%ずつ強くなる）
-  // sp5：★5 にした SSR・UR の、とくべつな効果（試合でさらに強くなる）
+  // sp5：★5 にした SSR・UR の、特別な効果（試合でさらに強くなる）
   function itemTotal(pid) {
     const t = { sp: [], sp5: [] };
     if (!data.owned[pid]) return t;
@@ -105,7 +105,7 @@ window.Store = (() => {
     const lv = it.inv[id];
     if (lv >= IT.LV_MAX) return 'もう ★5 です';
     const need = IT.LV_COST[lv];
-    if ((it.copies[id] || 0) < need) return `同じアイテムがあと ${need - (it.copies[id] || 0)} こ必要です`;
+    if ((it.copies[id] || 0) < need) return `同じアイテムがあと ${need - (it.copies[id] || 0)} 個必要です`;
     it.copies[id] -= need;
     if (!it.copies[id]) delete it.copies[id];
     it.inv[id] = lv + 1;
@@ -121,7 +121,7 @@ window.Store = (() => {
     return Math.max(0, n - (data.items.copies[id] || 0));
   }
 
-  // 試合中だけの効果（速さ・ゲージ・フリースロー・ダンク・スティール・ブロックと、とくべつな効果）
+  // 試合中だけの効果（速さ・ゲージ・フリースロー・ダンク・スティール・ブロックと、特別な効果）
   function itemFx(pid) {
     const t = itemTotal(pid);
     return { speed: t.speed || 0, gauge: t.gauge || 0, ft: t.ft || 0, dunk: t.dunk || 0, steal: t.steal || 0, block: t.block || 0, sp: t.sp, sp5: t.sp5 };
@@ -133,7 +133,7 @@ window.Store = (() => {
   // つける：同じ種類をつけていたら入れかえ、ほかの選手がつけていたら外して移す。5つまで
   function equip(pid, id) {
     const it = IT.byId[id];
-    if (!it || !(id in data.items.inv) || !data.owned[pid]) return 'つけられません';
+    if (!it || !(id in data.items.inv) || !data.owned[pid]) return '装備できません';
     const list = equipOf(pid).filter(x => IT.byId[x].type !== it.type);
     if (list.length >= 5) return 'アイテムは5つまでです';
     const from = ownerOf(id);

@@ -1,7 +1,7 @@
 // アイテム（ガチャで出るバスケの道具）。1人5つまで、同じ種類は1つまで。同じアイテムを集めると ★5 まで強化できる
 // 効果のキー：three=3P mid=2P drive=突破 pass=パス reb=リバウンド def=守備 all=全部の能力（ここまでは能力値に足す）
-//             speed=速さ(%) gauge=シュートゲージのパーフェクトのはば(%) ft=フリースロー dunk=ダンク steal=スティール block=ブロック（試合中だけ）
-// sp：とくべつな効果（js/match3d.js で使う）
+//             speed=速さ(%) gauge=シュートゲージのパーフェクトの幅(%) ft=フリースロー dunk=ダンク steal=スティール block=ブロック（試合中だけ）
+// sp：特別な効果（js/match3d.js で使う）
 (() => {
   const TYPES = [
     { id: 'shoes', name: 'バッシュ', icon: '👟', svg: '<path d="M5 33V20c0-2 2-4 4-4h6l3 4 4-1 3-6h6c1 0 2 1 2 2v6c0 2 2 3 4 4l4 2c2 1 2 3 2 5v1H5z" fill="var(--rc)" fill-opacity=".35"/><path d="M5 33V20c0-2 2-4 4-4h6l3 4 4-1 3-6h6c1 0 2 1 2 2v6c0 2 2 3 4 4l4 2c2 1 2 3 2 5v1H5zM5 38h38M15 23l3 3M19 21l3 3M23 19l3 3"/><path d="M8 33h35" stroke-dasharray="2 3"/>' },
@@ -25,10 +25,10 @@
   const SP = {
     beat: 'ドライブで相手を抜きやすい',
     driveSafe: 'ドライブ中は相手にスティールされない',
-    chase: 'ディフェンス中、ついていく速さアップ',
+    chase: 'ディフェンス中、ついて行く速さアップ',
     home: 'ホームの試合で全部の能力 +2',
     nextThree: 'パーフェクトで決めると、次の3Pも入りやすい',
-    zone: '2本つづけて決めると「ゾーン」（10秒間 シュートが入りやすい）',
+    zone: '2本連続で決めると「ゾーン」（10秒間 シュートが入りやすい）',
     clutch: '4Qの残り1分は、シュートが入りやすい',
     ftPerfect: 'フリースローが必ずパーフェクトになる',
     noCut: 'この選手のパスはカットされにくい',
@@ -37,18 +37,18 @@
     sky: 'ジャンプが高くなり、ダンク・ブロックが強い',
     lockdown: 'マークした相手のシュートの確率ダウン',
     shadow: 'ドライブしてきた相手を止めやすい',
-    afterBeat: '抜いたあとすぐ打つシュートが入りやすい',
+    afterBeat: '抜いた直後に打つシュートが入りやすい',
     fastBreak: 'スティールした直後の速攻が決まりやすい',
     readPass: '相手のパスをカットしやすい',
-    eagle: 'シュートゲージのパーフェクトのはばが2倍',
+    eagle: 'シュートゲージのパーフェクトの幅が2倍',
     ot: '延長戦で全部の能力 +3',
     bond: 'ピックかロールと一緒に出ると、チーム全員のシュートが入りやすい',
   };
-  // ★5 にすると、とくべつな効果も強くなる（その説明）
+  // ★5 にすると、特別な効果も強くなる（その説明）
   const SP5 = {
     beat: '抜きやすさが 1.5倍',
     driveSafe: 'ドライブの速さもアップ',
-    chase: 'ついていく速さが 1.5倍',
+    chase: 'ついて行く速さが 1.5倍',
     home: 'ホームの試合で全部の能力 +3',
     nextThree: '次の3Pがさらに入りやすい',
     zone: 'ゾーンが15秒に',
@@ -63,7 +63,7 @@
     afterBeat: '入りやすさが 1.5倍',
     fastBreak: '速攻の入りやすさが 1.5倍',
     readPass: 'カットしやすさが 1.5倍',
-    eagle: 'パーフェクトのはばが2.5倍',
+    eagle: 'パーフェクトの幅が2.5倍',
     ot: '延長戦の入りやすさが 1.5倍',
     bond: 'チーム全員の入りやすさが 1.5倍',
   };
@@ -71,7 +71,7 @@
   const LV_MAX = 4;
   const LV_COST = [1, 2, 3, 4]; // ★(lv+1) → ★(lv+2) に使う、同じアイテムの数
   const lvVal = (v, lv, main) => v + Math.max(main ? lv || 0 : 0, Math.round(v * 0.2 * (lv || 0)));
-  // [種類, レア, 名前, 効果, とくべつな効果]
+  // [種類, レア, 名前, 効果, 特別な効果]
   const L = [
     // 1. バッシュ
     ['shoes', 'N', 'ローカット バッシュ', { speed: 2 }],
@@ -137,7 +137,7 @@
     ['knee', 'R', 'ロングニースリーブ', { reb: 2, def: 1 }],
     ['knee', 'SR', 'ボックスアウトパッド', { reb: 4, def: 2 }],
     ['knee', 'SR', 'ポスタライザー', { dunk: 4, block: 2 }],
-    ['knee', 'SSR', 'リバウンド王のひざ', { reb: 5, block: 3 }, 'rebPos'],
+    ['knee', 'SSR', 'リバウンド王の膝', { reb: 5, block: 3 }, 'rebPos'],
     ['knee', 'UR', '天空ジャンパー', { dunk: 6, block: 4 }, 'sky'],
     // 7. タイツ
     ['tights', 'N', 'ショートタイツ', { def: 2 }],
@@ -149,7 +149,7 @@
     ['tights', 'SR', 'ロックダウンタイツ', { def: 4, steal: 2 }],
     ['tights', 'SR', 'トランジションタイツ', { speed: 4, drive: 2 }],
     ['tights', 'SSR', '鉄壁タイツ', { def: 5, block: 3 }, 'lockdown'],
-    ['tights', 'UR', '影ふみタイツ', { def: 6, steal: 4 }, 'shadow'],
+    ['tights', 'UR', '影踏みタイツ', { def: 6, steal: 4 }, 'shadow'],
     // 8. テーピング
     ['tape', 'N', 'フィンガーテープ', { pass: 2 }],
     ['tape', 'N', 'リストテープ', { mid: 2 }],
@@ -177,16 +177,16 @@
     ['charm', 'N', '練習球', { ft: 2 }],
     ['charm', 'N', 'ミニバスボール', { def: 2 }],
     ['charm', 'R', 'ロットネスト島のボール', { all: 1 }],
-    ['charm', 'R', 'ハマのかもめボール', { speed: 3 }],
+    ['charm', 'R', 'ハマのカモメボール', { speed: 3 }],
     ['charm', 'R', '推しのサインボール', { three: 2, ft: 1 }],
     ['charm', 'SR', 'ピックのラッキーボール', { drive: 4, pass: 2 }],
     ['charm', 'SR', 'ロールのラッキーボール', { three: 4, mid: 2 }],
     ['charm', 'SSR', 'チャンピオンシップボール', { all: 3 }, 'ot'],
-    ['charm', 'UR', 'ピック＆ロールのきずな', { all: 4 }, 'bond'],
+    ['charm', 'UR', 'ピック＆ロールの絆', { all: 4 }, 'bond'],
   ];
   const KEY_NAME = {
     three: '3P', mid: '2P', drive: '突破', pass: 'パス', reb: 'リバウンド', def: '守備', all: '全部の能力',
-    speed: '速さ', gauge: 'ゲージのはば', ft: 'フリースロー', dunk: 'ダンク', steal: 'スティール', block: 'ブロック',
+    speed: '速さ', gauge: 'ゲージの幅', ft: 'フリースロー', dunk: 'ダンク', steal: 'スティール', block: 'ブロック',
   };
   const items = L.map(([type, rarity, name, e, sp], i) => ({
     id: 'i' + String(i + 1).padStart(3, '0'), type, rarity, name, e, sp: sp || null,

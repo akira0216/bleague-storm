@@ -1133,8 +1133,10 @@ function buildPlayer(info, jersey, numFg, face, badgeColor, kit) {
   shadow.position.y = 0.012;
   root.add(shadow);
   const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTexture(info.no, badgeColor), depthWrite: false }));
-  badge.scale.set(0.5, 0.28, 1);
-  badge.position.y = h * VIS + 0.45;
+  // スマホ（指で操作する画面）は背番号を 20% 大きく
+  const bk = window.matchMedia && matchMedia('(pointer: coarse)').matches ? 1.2 : 1;
+  badge.scale.set(0.5 * bk, 0.28 * bk, 1);
+  badge.position.y = h * VIS + 0.45 + 0.14 * (bk - 1);
   badge.renderOrder = 5;
   root.add(badge);
   return { root, body, legs, arms, head, shadow, badge, height: h * VIS, realH: h, sty };
@@ -2032,15 +2034,15 @@ class Match {
         <button class="b b-a"><span>パス</span><i></i></button>
         <button class="b b-b big"><span>シュート</span><i></i></button>
       </div>
-      <div class="m3d-hint">スマホは横向きがおすすめ</div>
+      <div class="m3d-hint">スマホは横向き推奨</div>
       <div class="m3d-menu"><div>
         <h2>一時停止</h2>
         <button class="btn primary" data-m="resume">再開</button>
         <button class="btn" data-m="subs">選手交代</button>
         <div class="m3d-subs"></div>
         <button class="btn" data-m="help">操作説明</button>
-        <button class="btn" data-m="suspend">中断して、あとで再開</button>
-        <button class="btn" data-m="quit">試合をやめる</button>
+        <button class="btn" data-m="suspend">中断して、後で再開</button>
+        <button class="btn" data-m="quit">試合を終了する</button>
         <div class="m3d-help">${this.o.helpHtml || ''}</div>
       </div></div>`;
     // 得点カードのふちのチームカラー
@@ -2282,7 +2284,7 @@ class Match {
       p.stam = clamp(p.stam - eff * TIRE_DRAIN * q * dt, 0, 100);
       if (p.side === 0 && p.stam < 35 && !p.warned && live) {
         p.warned = true;
-        this.call('つかれています', `${p.info.name}　Ⅱ →「選手交代」で休ませよう`, 'TIRED', 0);
+        this.call('疲れています', `${p.info.name}　Ⅱ →「選手交代」で休ませましょう`, 'TIRED', 0);
       }
       if (p.stam > 55) p.warned = false;
     });
@@ -2313,7 +2315,7 @@ class Match {
     });
   }
 
-  // 予約した交代は、ボールが止まっているとき（得点のあと・スローインの前・クォーターの間など）に行う
+  // 予約した交代は、ボールが止まっているとき（得点の後・スローインの前・クォーターの間など）に行う
   trySubs() {
     if (this.subBusy || !this.subs.length || this.ended || this.stopped) return;
     if (this.state !== 'dead' && this.state !== 'throwin') return;
@@ -2389,10 +2391,10 @@ class Match {
   // アイテムの効果（自分の選手だけ。CPU はなし）
   ifx(p) { return (p && p.info.fx) || NO_FX; }
   has(p, sp) { return !!(p && p.info.fx && p.info.fx.sp.includes(sp)); }
-  // ★5 にしたアイテムのとくべつな効果は 1.5倍（それ以外は 1）
+  // ★5 にしたアイテムの特別な効果は 1.5倍（それ以外は 1）
   aw(p, sp) { return p && p.info.fx && p.info.fx.sp5 && p.info.fx.sp5.includes(sp) ? 1.5 : 1; }
 
-  // アイテムでシュートが入りやすくなる分（とくべつな効果）
+  // アイテムでシュートが入りやすくなる分（特別な効果）
   itemShotBonus(p, kind, three) {
     const f = this.ifx(p), st = this.st, t = this.time;
     let b = 0;
@@ -2635,7 +2637,7 @@ class Match {
     p.lastGrade = err < w * 0.5 ? 'perfect' : 'other';
     if (err < w * 0.5) { bonus = 0.22; grade = 'パーフェクト！'; }
     else if (err < w * 1.3) { bonus = 0.08; grade = 'グッド'; }
-    else if (err < w * 2.4) { bonus = -0.06; grade = val < PERFECT ? 'ちょっと早い' : 'ちょっと遅い'; }
+    else if (err < w * 2.4) { bonus = -0.06; grade = val < PERFECT ? '少し早い' : '少し遅い'; }
     else { bonus = -0.22; grade = val < PERFECT ? '早すぎ！' : '遅すぎ！'; }
     if (side === 1) bonus += this.f * 0.04 - CPU_NERF * 0.4;
     const prob = clamp(base - pen + bonus + this.itemShotBonus(p, kind, three) - 0.12 * this.tired(p), 0.03, 0.95);
