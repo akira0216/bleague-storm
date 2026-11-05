@@ -282,6 +282,7 @@
   function go(v, arg) { view = v; viewArg = arg; render(); window.scrollTo(0, 0); }
 
   function render() {
+    if (view !== 'match') Sound.setMenu(true);
     if (!S.data.fav) return renderWelcome();
     ({ home: renderHome, team: renderTeam, scout: renderScout, table: renderTable,
       pre: renderPre, match: renderMatch, settings: renderSettings, free: renderFree, help: renderHelp,
@@ -967,9 +968,10 @@
     const m = match;
     $app.innerHTML = '<div class="m3d" id="m3d"><div class="m3d-loading">読み込み中…</div></div>';
     document.body.classList.add('playing');
+    Sound.setMenu(false); // 試合中は試合の BGM だけ
     if (!window.Match3D) await new Promise(r => window.addEventListener('match3d-ready', r, { once: true }));
     if (match !== m) return;
-    const end = () => document.body.classList.remove('playing');
+    const end = () => { document.body.classList.remove('playing'); Sound.setMenu(true); };
     // ベンチの選手（交代用）：自分は持っている選手のうちコートにいない人、CPU はチームの上位10人のうちコートにいない人
     const onCourt = sd => m.st.sides[sd].players.map(p => p.pid);
     const bench = [
@@ -1072,6 +1074,9 @@
   Sound.setOn(!!S.data.sound);
   Sound.setBgmOn(!!S.data.bgm);
   loadMyBgm();
+  // 試合以外の画面の BGM。スマホは画面に触れるまで音を出せないので、触れるたびに鳴らせるか確かめる
+  Sound.setMenu(true);
+  document.addEventListener('pointerdown', () => Sound.unlock(), true);
   render();
   if ('serviceWorker' in navigator && window.isSecureContext) startOffline();
 })();

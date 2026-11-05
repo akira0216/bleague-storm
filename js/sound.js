@@ -1,4 +1,4 @@
-// 試合の音（音声ファイルは使わず、ブラウザの中で音を作る）
+// 試合の音（ほとんどはブラウザの中で作る。メニューのBGMとスウィッシュは音声ファイル）
 // BGM（オフェンスとディフェンスで2曲のビート）、観客のざわめき・歓声・ため息、ドリブル、ネット、リング、笛、ブザー
 window.Sound = (() => {
   let ctx = null;
@@ -33,6 +33,8 @@ window.Sound = (() => {
       Object.keys(customRaw).forEach(m => decodeCustom(m));
     }
     if (ctx.state === 'suspended') ctx.resume();
+    loadSwish();
+    updateMenu();
   }
 
   // ---------- 自分の曲 ----------
@@ -65,9 +67,56 @@ window.Sound = (() => {
     });
   }
 
+  // ---------- 試合以外の画面の BGM（audio/menu-1.mp3 をくり返し再生） ----------
+  // 曲は一度まるごと読み込んでから鳴らす（保存しておけばオフラインでも鳴る）
+  const MENU_URL = 'audio/menu-1.mp3';
+  const MENU_VOL = 0.8;
+  let menuWant = false; // 今いる画面で流したいか（試合中は false）
+  let menu = null;      // { el, gain }
+  let menuLoading = null;
+
+  function loadMenu() {
+    if (menu || menuLoading || !ctx) return;
+    menuLoading = fetch(MENU_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(b => {
+      const el = new Audio();
+      el.src = URL.createObjectURL(b);
+      el.loop = true;
+      el.preload = 'auto';
+      el.setAttribute('playsinline', '');
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      ctx.createMediaElementSource(el).connect(gain);
+      gain.connect(bgmBus);
+      menu = { el, gain };
+      updateMenu();
+    }).catch(() => { /* 読み込めなかったときは鳴らさない */ }).finally(() => { menuLoading = null; });
+  }
+
+  // 流すかどうかを、画面・設定・アプリが表に出ているかで決める
+  function updateMenu() {
+    if (!ctx) return;
+    if (!menu) { if (menuWant && bgmOn) loadMenu(); return; }
+    const play = menuWant && bgmOn && !document.hidden;
+    const g = menu.gain.gain, now = ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    clearTimeout(menu.stopT);
+    if (play) {
+      if (menu.el.paused) { const pr = menu.el.play(); if (pr && pr.catch) pr.catch(() => {}); }
+      g.linearRampToValueAtTime(MENU_VOL, now + 1.2);
+    } else {
+      g.linearRampToValueAtTime(0, now + 0.6);
+      menu.stopT = setTimeout(() => menu.el.pause(), 700); // 止めたところから、次はつづきを鳴らす
+    }
+  }
+
+  function setMenu(v) { menuWant = v; updateMenu(); }
+  document.addEventListener('visibilitychange', () => updateMenu());
+
   function setBgmOn(v) {
     bgmOn = v;
     if (bgmBus) bgmBus.gain.setTargetAtTime(v ? 0.32 : 0, ctx.currentTime, 0.1);
+    updateMenu();
   }
 
   function setOn(v) {
@@ -253,8 +302,36 @@ window.Sound = (() => {
 
   // シュートが決まったときの「シュパッ」：ボールがネットの糸をこする音。
   // 本物は、糸がこすれる小さな「チッ」がたくさん集まって「ザッ」と聞こえるので、短いノイズのつぶを何十個も重ねる
+  // ゴールしたときのスウィッシュ（録音した音。読み込めていないときは、プログラムで作った音）
+  const SWISH_URL = 'audio/swish-1.mp3';
+  const SWISH_VOL = 0.5; // プログラムで作った音より少しはっきり聞こえるくらい
+  let swishBuf = null, swishLoading = false;
+  function loadSwish() {
+    if (swishBuf || swishLoading || !ctx) return;
+    swishLoading = true;
+    fetch(SWISH_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(raw => new Promise((res, rej) => { const pr = ctx.decodeAudioData(raw, res, rej); if (pr && pr.catch) pr.catch(() => {}); }))
+      .then(buf => { swishBuf = buf; })
+      .catch(() => {})
+      .finally(() => { swishLoading = false; });
+  }
+
   function swish() {
     if (!ready()) return;
+    if (swishBuf) {
+      const src = ctx.createBufferSource();
+      src.buffer = swishBuf;
+      src.playbackRate.value = 0.96 + Math.random() * 0.08; // 毎回少しだけ変える
+      const g = ctx.createGain();
+      g.gain.value = SWISH_VOL;
+      src.connect(g).connect(master);
+      src.start();
+      return;
+    }
+    swishSynth();
+  }
+
+  function swishSynth() {
     const t = ctx.currentTime;
     const bus = ctx.createGain();
     bus.gain.value = 0.9;
@@ -806,8 +883,10 @@ window.Sound = (() => {
   }
 
   return {
-    unlock, setOn, setBgmOn, startBgm, stopBgm, setBgmMode, setCustom, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
+    unlock, setOn, setBgmOn, setMenu, startBgm, stopBgm, setBgmMode, setCustom, renderBgm, renderSfx, startCrowd, stopCrowd, cheer, groan, dribble, swish, rim, whistle, buzzer, squeak,
     get on() { return on; },
     get state() { return ctx ? ctx.state : "none"; },
+    // 確認用：メニューの BGM のようす
+    get menu() { return menu ? { paused: menu.el.paused, time: menu.el.currentTime, vol: menu.gain.gain.value } : null; },
   };
 })();
