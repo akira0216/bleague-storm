@@ -630,7 +630,7 @@
     };
   })();
   const myBgm = {}; // mode → 曲のファイル名
-  const BGM_MODES = [['off', 'オフェンス'], ['def', 'ディフェンス']];
+  const BGM_MODES = [['menu', 'ホーム・メニュー'], ['off', 'オフェンス'], ['def', 'ディフェンス']];
   function loadMyBgm() {
     if (!window.indexedDB) return;
     BGM_MODES.forEach(([k]) => BgmStore.get(k).then(v => {
@@ -651,7 +651,7 @@
       await Sound.setCustom(k, data); // 読めない形式ならここでエラー
       await BgmStore.put(k, { name: file.name, data });
       myBgm[k] = file.name;
-      toast(`${k === 'off' ? 'オフェンス' : 'ディフェンス'}の曲を「${file.name}」にしました`);
+      toast(`${BGM_MODES.find(m => m[0] === k)[1]}の曲を「${file.name}」にしました`);
     } catch (e) {
       // 前にえらんでいた曲にもどす
       BgmStore.get(k).then(v => Sound.setCustom(k, v && v.data ? v.data : null)).catch(() => Sound.setCustom(k, null));
@@ -726,7 +726,7 @@
         <h3>効果音・観客の声</h3><div class="chips">${opt('sound', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGM</h3><div class="chips">${opt('bgm', [[1, 'あり'], [0, 'なし']])}</div>
         <h3>BGMの曲</h3>
-        <p class="hint">スマホに入っている曲（mp3・m4a など）を、オフェンスとディフェンスのBGMにできます。曲はこのスマホの中だけに保存され、他の人には届きません。選ばない場合は、アプリで作った曲が流れます。</p>
+        <p class="hint">スマホに入っている曲（mp3・m4a など）を、ホーム・メニュー画面（試合以外の画面）と、試合中のオフェンス・ディフェンスのBGMにできます。曲はこのスマホの中だけに保存され、他の人には届きません。選ばない場合は、アプリの曲が流れます。</p>
         ${BGM_MODES.map(([k, l]) => `<div class="mybgm">
           <span>${l}：<b>${myBgm[k] ? '🎵 ' + esc(myBgm[k]) : 'アプリの曲'}</b></span>
           <label class="btn">曲を選ぶ<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" data-bgmfile="${k}" hidden></label>
@@ -936,7 +936,7 @@
         <li>アプリを消すと、記録・コイン・選手も消えます。定期的に保存しておきましょう。</li></ul>`)
     + hsec('💪', 'CPUの強さ', '勝てないとき・簡単すぎるときは「設定」→「CPUの強さ」で調節。')
     + hsec('🎵', '音とBGM', '「設定」で効果音・BGM のオン/オフ。<b>自分の曲</b>も選べます。',
-      `<ul><li>「BGMの曲」で、スマホの中の曲をオフェンス用・ディフェンス用に選べます。</li>
+      `<ul><li>「BGMの曲」で、スマホの中の曲をホーム・メニュー用、試合のオフェンス用・ディフェンス用に選べます。</li>
         <li>「1クォーターの長さ」も「設定」で変えられます。</li></ul>`)
     + hsec('🔄', 'アップデート', '新しい版が出ると［アップデート］が出ます。押すと最新に。',
       `<p>出ないときは「設定」→「アップデート」の「確認する」。</p>`);

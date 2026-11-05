@@ -31,6 +31,7 @@ window.Sound = (() => {
       const d = noise.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       Object.keys(customRaw).forEach(m => decodeCustom(m));
+      if (menuMineRaw) setMenuMine(menuMineRaw).catch(() => {});
     }
     if (ctx.state === 'suspended') ctx.resume();
     loadSwish();
@@ -40,6 +41,7 @@ window.Sound = (() => {
   // ---------- 自分の曲 ----------
   // data：音声ファイルの ArrayBuffer（null で、もとのプログラムの曲にもどす）。読めなかったら reject
   function setCustom(mode, data) {
+    if (mode === 'menu') return setMenuMine(data);
     delete custom[mode];
     delete customRaw[mode];
     if (!data) return Promise.resolve(null);
@@ -67,47 +69,91 @@ window.Sound = (() => {
     });
   }
 
-  // ---------- 試合以外の画面の BGM（audio/menu-2.mp3 をくり返し再生） ----------
-  // 曲は一度まるごと読み込んでから鳴らす（保存しておけばオフラインでも鳴る）
+  // ---------- 試合以外の画面の BGM（audio/menu-2.mp3 か、自分で選んだ曲をくり返し再生） ----------
+  // アプリの曲は一度まるごと読み込んでから鳴らす（保存しておけばオフラインでも鳴る）
   const MENU_URL = 'audio/menu-2.mp3';
   const MENU_VOL = 0.67; // 曲の平均の大きさに合わせて調整
-  let menuWant = false; // 今いる画面で流したいか（試合中は false）
-  let menu = null;      // { el, gain }
-  let menuLoading = null;
+  let menuWant = false;  // 今いる画面で流したいか（試合中は false）
+  let menu = null;       // { el, gain, src }
+  let menuDefUrl = null; // アプリの曲（読み込んだもの）
+  let menuDefLoading = false;
+  let menuMine = null;   // 自分で選んだ曲 { url, vol }
+  let menuMineRaw = null; // ctx ができる前に渡された自分の曲（ArrayBuffer）
+  let menuMineBusy = false; // 自分の曲を調べている間は、アプリの曲を鳴らし始めない
 
-  function loadMenu() {
-    if (menu || menuLoading || !ctx) return;
-    menuLoading = fetch(MENU_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(b => {
-      const el = new Audio();
-      el.src = URL.createObjectURL(b);
-      el.loop = true;
-      el.preload = 'auto';
-      el.setAttribute('playsinline', '');
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      ctx.createMediaElementSource(el).connect(gain);
-      gain.connect(bgmBus);
-      menu = { el, gain };
-      updateMenu();
-    }).catch(() => { /* 読み込めなかったときは鳴らさない */ }).finally(() => { menuLoading = null; });
+  function ensureMenu() {
+    if (menu || !ctx) return;
+    const el = new Audio();
+    el.loop = true;
+    el.preload = 'auto';
+    el.setAttribute('playsinline', '');
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    ctx.createMediaElementSource(el).connect(gain);
+    gain.connect(bgmBus);
+    menu = { el, gain, src: null };
+  }
+
+  // 鳴らす曲（自分の曲があればそれ、なければアプリの曲）を用意する。用意できたら true
+  function menuSource() {
+    const url = menuMine ? menuMine.url : menuDefUrl;
+    if (!url) {
+      if (!menuMine && !menuDefLoading) {
+        menuDefLoading = true;
+        fetch(MENU_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+          .then(b => { menuDefUrl = URL.createObjectURL(b); updateMenu(); })
+          .catch(() => { /* 読み込めなかったときは鳴らさない */ })
+          .finally(() => { menuDefLoading = false; });
+      }
+      return false;
+    }
+    if (menu.src !== url) { menu.el.pause(); menu.el.src = url; menu.src = url; } // 曲が変わったら頭から
+    return true;
   }
 
   // 流すかどうかを、画面・設定・アプリが表に出ているかで決める
   function updateMenu() {
     if (!ctx) return;
-    if (!menu) { if (menuWant && bgmOn) loadMenu(); return; }
+    ensureMenu();
     const play = menuWant && bgmOn && !document.hidden;
     const g = menu.gain.gain, now = ctx.currentTime;
     g.cancelScheduledValues(now);
     g.setValueAtTime(g.value, now);
     clearTimeout(menu.stopT);
-    if (play) {
+    if (play && !menuMineBusy && menuSource()) {
       if (menu.el.paused) { const pr = menu.el.play(); if (pr && pr.catch) pr.catch(() => {}); }
-      g.linearRampToValueAtTime(MENU_VOL, now + 1.2);
+      g.linearRampToValueAtTime(menuMine ? menuMine.vol : MENU_VOL, now + 1.2);
     } else {
       g.linearRampToValueAtTime(0, now + 0.6);
       menu.stopT = setTimeout(() => menu.el.pause(), 700); // 止めたところから、次はつづきを鳴らす
     }
+  }
+
+  // 自分の曲をメニューの BGM にする（data が null ならアプリの曲に戻す）。読めない曲は reject
+  function setMenuMine(data) {
+    menuMineRaw = null;
+    if (!data) {
+      if (menuMine) URL.revokeObjectURL(menuMine.url);
+      menuMine = null;
+      updateMenu();
+      return Promise.resolve(null);
+    }
+    if (!ctx) { menuMineRaw = data; return Promise.resolve(null); }
+    menuMineBusy = true;
+    updateMenu();
+    // 一度読んでみて、読めるか確かめ、平均の音の強さから音量を決める（読んだ音は捨てる）
+    return new Promise((res, rej) => {
+      const pr = ctx.decodeAudioData(data.slice(0), res, rej);
+      if (pr && pr.catch) pr.catch(() => {});
+    }).then(buf => {
+      const d = buf.getChannelData(0);
+      let sum = 0, n = 0;
+      for (let i = 0; i < d.length; i += 64) { sum += d[i] * d[i]; n++; }
+      const rms = Math.sqrt(sum / (n || 1)) || 0.1;
+      if (menuMine) URL.revokeObjectURL(menuMine.url);
+      menuMine = { url: URL.createObjectURL(new Blob([data])), vol: Math.max(0.1, Math.min(2, 0.16 / rms)) };
+      return buf.duration;
+    }).finally(() => { menuMineBusy = false; updateMenu(); });
   }
 
   function setMenu(v) { menuWant = v; updateMenu(); }
