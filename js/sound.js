@@ -67,10 +67,10 @@ window.Sound = (() => {
     });
   }
 
-  // ---------- 試合以外の画面の BGM（audio/menu-1.mp3 をくり返し再生） ----------
+  // ---------- 試合以外の画面の BGM（audio/menu-2.mp3 をくり返し再生） ----------
   // 曲は一度まるごと読み込んでから鳴らす（保存しておけばオフラインでも鳴る）
-  const MENU_URL = 'audio/menu-1.mp3';
-  const MENU_VOL = 0.8;
+  const MENU_URL = 'audio/menu-2.mp3';
+  const MENU_VOL = 0.67; // 曲の平均の大きさに合わせて調整
   let menuWant = false; // 今いる画面で流したいか（試合中は false）
   let menu = null;      // { el, gain }
   let menuLoading = null;
