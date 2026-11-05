@@ -356,12 +356,15 @@ body.playing { overflow: hidden; }
 .help summary::before { content: '▼ '; font-size: 10px; }
 .help details[open] summary::before { content: '▲ '; }
 .help details > *:not(summary) { margin-top: 6px; }
-.hb-grid { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; color: var(--ink); margin-bottom: 4px; }
-.hb-h { font-size: 12px; padding: 3px 6px; border-radius: 6px; text-align: center; }
-.hb-h.off { background: rgba(232, 120, 40, .2); color: #ffb37a; }
-.hb-h.def { background: rgba(74, 163, 255, .18); color: #8cc6ff; }
+.hb.off { border-left: 4px solid #e87828; }
+.hb.def { border-left: 4px solid #4aa3ff; }
+.hb-list { display: grid; gap: 8px; margin: 8px 0 2px; }
+.hb-row { display: grid; grid-template-columns: 58px 1fr; gap: 10px; align-items: center; }
+.hb-row > div { display: grid; gap: 1px; font-size: 13px; color: var(--mute); line-height: 1.5; }
+.hb-row > div > b { font-size: 14px; }
 .hb-btn { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; font-style: normal; font-size: 11px; font-weight: 900; color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, .5); background: radial-gradient(circle at 35% 30%, var(--c1), var(--c2)); box-shadow: 0 2px 6px rgba(0, 0, 0, .4); }
+.hb-btn.long { font-size: 9.5px; letter-spacing: -.06em; }
 .hb-btn.b-b { --c1: #ffa24a; --c2: #d8461a; }
 .hb-btn.b-a { --c1: #4aa3ff; --c2: #1e4fb6; }
 .hb-btn.b-c { --c1: #ffd45a; --c2: #c27f0c; color: #2a1a00; text-shadow: none; }
