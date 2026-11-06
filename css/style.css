@@ -822,3 +822,13 @@ body.playing { overflow: hidden; }
 .sheet.isheet { background: linear-gradient(180deg, #1b2336, var(--panel) 45%); }
 .icard.r-SR::before { opacity: .7; }
 .icard.mini .ic-cp, .icard.mini .ic-up { display: none; }
+
+/* 通信対戦 */
+.big-btn.online-btn { background: linear-gradient(180deg, #4b7bd8, #2c58b0); color: #fff; box-shadow: 0 8px 24px rgba(60, 110, 220, .25); }
+.online-box { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 18px 16px; margin: 12px 0; border-radius: var(--r); background: var(--panel); border: 1px solid var(--edge); }
+.online-box h2 { margin: 0; font-size: 18px; }
+.online-box p { margin: 0; color: var(--mute); font-size: 13px; }
+.online-box small { color: var(--mute); font-weight: 700; }
+.room-code { font-family: var(--f-num); font-size: 72px; line-height: 1; letter-spacing: .12em; color: var(--led, var(--gold)); }
+.room-in { width: 100%; max-width: 220px; padding: 12px; border-radius: 12px; border: 1px solid var(--edge); background: var(--panel-2); color: var(--ink); font-family: var(--f-num); font-size: 32px; text-align: center; letter-spacing: .2em; }
+.online-err { padding: 10px 14px; border-radius: 12px; background: #3a1820; border: 1px solid #7a2b3a; color: #ffd6dc; font-size: 14px; }

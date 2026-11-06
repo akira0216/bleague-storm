@@ -309,7 +309,7 @@
     } else if (dlgOpen()) {
       const cb = document.querySelector('#dlg .close');
       if (cb) cb.click(); else closeDlg();
-    } else if (view === 'pre' && String(viewArg || '').startsWith('free:')) go('free');
+    } else if ((view === 'pre' && String(viewArg || '').startsWith('free:')) || view === 'online') go('free');
     else if (view !== 'home') go('home');
   }
   window.addEventListener('popstate', e => {
@@ -320,10 +320,12 @@
 
   function render() {
     if (view !== 'match') Sound.setMenu(true);
+    // 通信対戦の部屋の画面から離れたら、接続を閉じる（試合を始めたときは試合が使う）
+    if (view !== 'online' && view !== 'match' && lobby) closeLobby();
     if (!S.data.fav) return renderWelcome();
     ({ home: renderHome, team: renderTeam, scout: renderScout, table: renderTable,
       pre: renderPre, match: renderMatch, settings: renderSettings, free: renderFree, help: renderHelp,
-      gacha: renderGacha, items: renderItems }[view] || renderHome)();
+      gacha: renderGacha, items: renderItems, online: renderOnline }[view] || renderHome)();
   }
 
   function header(title, back = true) {
@@ -600,11 +602,238 @@
   function renderFree() {
     $app.innerHTML = `
       ${header('フリー対戦')}
+      <button class="big-btn online-btn" data-go="online"><small>2台のスマホで</small><span>📡 通信対戦</span></button>
       <p class="hint">好きなチームと対戦できます（順位表には入りません）。</p>
       <div class="team-grid">${S.teams.filter(t => t.id !== S.data.fav).map(t => `
         <button class="team-pick" data-go="pre" data-arg="free:${t.id}" style="${teamStyle(t)}">
           ${logo(t)}<span>${esc(t.short)}</span><small>${Math.round(t.players.slice(0, 5).reduce((a, p) => a + p.r.ovr, 0) / 5)}</small>
         </button>`).join('')}</div>`;
+    bind();
+  }
+
+  // ---------- 通信対戦（2台の端末。PeerJS で直接つなぐ） ----------
+  // ホスト（部屋を作った人）が試合を計算し、ゲスト（部屋に入った人）は自分のチームを操作する
+  const PEER_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+  const ROOM_PREFIX = 'bstorm-room-';
+  let lobby = null; // { peer, conn, role, code, state, msg }
+
+  function loadPeer() {
+    if (window.Peer) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = PEER_URL;
+      s.onload = () => res();
+      s.onerror = () => rej(new Error('peerjs'));
+      document.head.appendChild(s);
+    });
+  }
+
+  // PeerJS の JSON 送信は1回に送れる大きさが小さいので、大きいメッセージは分けて送り、受け取ったらつなげる
+  const PART = 4000;
+  function wireSend(conn, m) {
+    if (!conn || !conn.open) return;
+    const s = JSON.stringify(m);
+    if (s.length <= PART) { conn.send(m); return; }
+    const id = Math.random().toString(36).slice(2, 8), n = Math.ceil(s.length / PART);
+    for (let i = 0; i < n; i++) conn.send({ pt: [id, i, n, s.slice(i * PART, (i + 1) * PART)] });
+  }
+  function wireOn(conn, f) {
+    const parts = {};
+    conn.on('data', d => {
+      if (d && d.pt) {
+        const [id, i, n, s] = d.pt;
+        const a = parts[id] || (parts[id] = { got: 0, s: [] });
+        if (a.s[i] === undefined) { a.s[i] = s; a.got++; }
+        if (a.got < n) return;
+        delete parts[id];
+        try { d = JSON.parse(a.s.join('')); } catch (e) { return; }
+      }
+      f(d);
+    });
+  }
+
+  function closeLobby() {
+    if (!lobby) return;
+    try { if (lobby.conn) lobby.conn.close(); } catch (e) { /* もう閉じている */ }
+    try { lobby.peer.destroy(); } catch (e) { /* もう閉じている */ }
+    lobby = null;
+  }
+
+  // 試合に渡す通信の窓口
+  function netOf(lb) {
+    const ls = [], cs = [];
+    const w = {
+      role: lb.role,
+      ready: false,
+      send: m => { try { wireSend(lb.conn, m); } catch (e) { /* 切れている */ } },
+      onMessage: f => ls.push(f),
+      onClose: f => cs.push(f),
+      close: () => { if (lobby === lb) lobby = null; try { lb.conn.close(); } catch (e) { /* */ } setTimeout(() => { try { lb.peer.destroy(); } catch (e) { /* */ } }, 300); },
+    };
+    lb.conn.off('data');
+    wireOn(lb.conn, d => { if (d && d.ready) w.ready = true; ls.forEach(f => f(d)); });
+    lb.conn.on('close', () => cs.forEach(f => f()));
+    lb.peer.on('disconnected', () => { try { lb.peer.reconnect(); } catch (e) { /* */ } });
+    return w;
+  }
+
+  function myVsSide() {
+    const side = sideOf(S.lineup(), myTeam(), true);
+    side.team = { ...myTeam(), short: myName() };
+    return side;
+  }
+  function myVsBench(side) {
+    const on = side.players.map(p => p.pid);
+    return sideOf(S.ownedIds().filter(id => !on.includes(id)), myTeam(), true, true).players;
+  }
+
+  function lobbyFail(msg) {
+    closeLobby();
+    lobby = { state: 'error', msg };
+    if (view === 'online') renderOnline();
+  }
+
+  async function hostRoom() {
+    closeLobby();
+    const lb = lobby = { role: 'host', state: 'wait', msg: '部屋を作っています…' };
+    renderOnline();
+    try { await loadPeer(); } catch (e) { return lobbyFail('通信の部品を読み込めませんでした。ネット接続を確認してください'); }
+    let tries = 0;
+    const open = () => {
+      if (lobby !== lb) return;
+      const code = String(Math.floor(1000 + Math.random() * 9000));
+      const peer = new Peer(ROOM_PREFIX + code);
+      lb.peer = peer;
+      peer.on('open', () => { if (lobby !== lb) return peer.destroy(); lb.code = code; lb.msg = '相手が入るのを待っています…'; renderOnline(); });
+      peer.on('error', e => {
+        if (lobby !== lb) return;
+        if (e.type === 'unavailable-id' && ++tries < 6) { peer.destroy(); return open(); } // 番号が使われていたら別の番号で
+        lobbyFail('部屋を作れませんでした（' + e.type + '）');
+      });
+      peer.on('connection', conn => {
+        if (lb.conn) { conn.on('open', () => { wireSend(conn, { full: 1 }); setTimeout(() => conn.close(), 500); }); return; }
+        lb.conn = conn;
+        wireOn(conn, d => {
+          if (!d || !d.hello || lobby !== lb || lb.started) return;
+          if (d.hello.ver !== APP_VER) { wireSend(conn, { verNg: APP_VER }); return lobbyFail('アプリのバージョンが違います。両方とも最新にしてください（相手 ' + d.hello.ver + '・自分 ' + APP_VER + '）'); }
+          lb.started = true;
+          const me = myVsSide();
+          const st = Game.create(me, d.hello.side, Math.min(S.data.quarterMin, 5));
+          const bench = [myVsBench(me), d.hello.bench || []];
+          // データが届いていても、こちら側の open がまだのことがある（open の前に送ると捨てられる）
+          const go2 = () => { wireSend(conn, { start: { st, bench } }); startVs(lb, st, bench); };
+          if (conn.open) go2(); else conn.once('open', go2);
+        });
+        conn.on('close', () => { if (lobby === lb && !lb.started) { lb.conn = null; lb.msg = '相手が抜けました。待っています…'; renderOnline(); } });
+      });
+    };
+    open();
+  }
+
+  async function joinRoom(code) {
+    if (!/^\d{4}$/.test(code)) { toast('4桁の部屋番号を入力してください'); return; }
+    closeLobby();
+    const lb = lobby = { role: 'guest', state: 'wait', msg: '部屋につないでいます…', code };
+    renderOnline();
+    try { await loadPeer(); } catch (e) { return lobbyFail('通信の部品を読み込めませんでした。ネット接続を確認してください'); }
+    if (lobby !== lb) return;
+    const peer = new Peer();
+    lb.peer = peer;
+    const timer = setTimeout(() => { if (lobby === lb && !lb.started) lobbyFail('つながりませんでした。部屋番号と、同じWi-Fiにいるかを確認してください'); }, 15000);
+    peer.on('error', e => {
+      if (lobby !== lb) return;
+      clearTimeout(timer);
+      lobbyFail(e.type === 'peer-unavailable' ? 'その番号の部屋が見つかりません' : 'つながりませんでした（' + e.type + '）');
+    });
+    peer.on('open', () => {
+      if (lobby !== lb) return;
+      const conn = peer.connect(ROOM_PREFIX + code, { reliable: true, serialization: 'json' });
+      lb.conn = conn;
+      conn.on('open', () => {
+        const side = myVsSide();
+        wireSend(conn, { hello: { ver: APP_VER, side, bench: myVsBench(side) } });
+        lb.msg = '相手の準備を待っています…';
+        renderOnline();
+      });
+      wireOn(conn, d => {
+        if (lobby !== lb || !d) return;
+        if (d.full) { clearTimeout(timer); return lobbyFail('その部屋はもう対戦中です'); }
+        if (d.verNg) { clearTimeout(timer); return lobbyFail('アプリのバージョンが違います。両方とも最新にしてください（相手 ' + d.verNg + '・自分 ' + APP_VER + '）'); }
+        if (d.start && !lb.started) { clearTimeout(timer); lb.started = true; startVs(lb, d.start.st, d.start.bench); }
+      });
+    });
+  }
+
+  function startVs(lb, st, bench) {
+    if (S.data.suspended) { delete S.data.suspended; S.save(); } // 中断中の試合は消える（部屋に入る前に確認ずみ）
+    Sound.unlock();
+    match = { st, free: true, opp: st.sides[1].team, vs: { net: netOf(lb), bench, side: lb.role === 'host' ? 0 : 1 } };
+    go('match');
+  }
+
+  function renderOnline() {
+    const lb = lobby;
+    const busy = lb && lb.state === 'wait';
+    $app.innerHTML = `
+      ${header('通信対戦')}
+      <p class="hint">2台のスマホで対戦します。1人が「部屋を作る」、もう1人がその部屋番号で「部屋に入る」を押してください。
+        それぞれ自分のチーム（チーム・育成のスタメン）で戦います。コイン・XP・順位表には入りません。</p>
+      ${busy ? `
+        <section class="online-box">
+          ${lb.role === 'host' && lb.code ? `<small>部屋番号</small><b class="room-code">${lb.code}</b>` : ''}
+          ${lb.role === 'guest' ? `<small>部屋番号 ${esc(lb.code)}</small>` : ''}
+          <p>${esc(lb.msg)}</p>
+          <button class="btn" id="vsCancel">やめる</button>
+        </section>` : `
+        ${lb && lb.state === 'error' ? `<p class="online-err">${esc(lb.msg)}</p>` : ''}
+        <section class="online-box">
+          <h2>部屋を作る</h2>
+          <p>部屋番号が表示されます。相手に伝えてください。</p>
+          <button class="btn primary" id="vsHost">部屋を作る</button>
+        </section>
+        <section class="online-box">
+          <h2>部屋に入る</h2>
+          <input id="vsCode" class="room-in" inputmode="numeric" maxlength="4" placeholder="4桁の番号" autocomplete="off">
+          <button class="btn primary" id="vsJoin">部屋に入る</button>
+        </section>
+        <p class="hint">同じWi-Fiにつないでいると、遅れが少なく快適です。最初の接続だけ、無料の接続サービス（PeerJS）を使います。
+          両方とも同じバージョンのアプリが必要です（現在 ${esc(APP_VER)}）。</p>`}`;
+    bind();
+    const q = id => document.getElementById(id);
+    const okSus = () => !S.data.suspended || confirm('中断した試合があります。通信対戦を始めると消えますが、よろしいですか？');
+    if (q('vsCancel')) q('vsCancel').onclick = () => { closeLobby(); renderOnline(); };
+    if (q('vsHost')) q('vsHost').onclick = () => { if (okSus()) hostRoom(); };
+    if (q('vsJoin')) {
+      const inp = q('vsCode');
+      inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 4); };
+      inp.onkeydown = e => { if (e.key === 'Enter') q('vsJoin').click(); };
+      q('vsJoin').onclick = () => { if (okSus()) joinRoom(inp.value); };
+    }
+  }
+
+  // 通信対戦の結果（記録はしない）
+  function finishVs(st, me) {
+    const op = 1 - me;
+    const win = st.score[me] > st.score[op];
+    const nm = sd => esc(st.sides[sd].team.short);
+    const who = sd => Object.keys(st.box[sd]).map(pid => ({ pid, name: S.playerById[pid] ? S.playerById[pid].name : pid }));
+    const tbl = sd => `<table class="box"><thead><tr><th>選手</th><th>PTS</th><th>RB</th><th>AST</th><th>STL</th><th>FG</th><th>3P</th></tr></thead>
+      <tbody>${who(sd).map(p => { const b = st.box[sd][p.pid]; return `<tr><td>${esc(p.name)}</td><td><b>${b.pts}</b></td><td>${b.reb}</td><td>${b.ast}</td><td>${b.stl}</td><td>${b.fgm}/${b.fga}</td><td>${b.p3m}/${b.p3a}</td></tr>`; }).join('')}</tbody></table>`;
+    const qs = st.qScores.map((s, i) => [s[me] - (i ? st.qScores[i - 1][me] : 0), s[op] - (i ? st.qScores[i - 1][op] : 0)]);
+    $app.innerHTML = `
+      ${header(win ? '勝利！' : '敗戦…')}
+      <section class="result ${win ? 'win' : 'lose'}">
+        <div class="final"><span>${nm(me)}</span><b>${st.score[me]} - ${st.score[op]}</b><span>${nm(op)}</span></div>
+        <div class="qs">${qs.map((s, i) => `<span>${i < 4 ? i + 1 + 'Q' : 'OT'} ${s[0]}-${s[1]}</span>`).join('')}</div>
+        <div class="reward">通信対戦（記録には残りません）</div>
+      </section>
+      <h2 class="sec">${nm(me)}</h2>${tbl(me)}
+      <h2 class="sec">${nm(op)}</h2>${tbl(op)}
+      <div class="row2">
+        <button class="btn" data-go="online">通信対戦へ</button>
+        <button class="btn primary" data-go="home">ホームへ</button>
+      </div>`;
+    match = null;
     bind();
   }
 
@@ -1011,6 +1240,24 @@
     const end = () => { document.body.classList.remove('playing'); Sound.setMenu(true); };
     // ベンチの選手（交代用）：自分は持っている選手のうちコートにいない人、CPU はチームの上位10人のうちコートにいない人
     const onCourt = sd => m.st.sides[sd].players.map(p => p.pid);
+    if (m.vs) {
+      const net = m.vs.net;
+      m.ctrl = await Match3D.start({
+        el: document.getElementById('m3d'),
+        st: m.st,
+        bench: m.vs.bench,
+        net,
+        faceOf: pid => (S.playerById[pid] ? S.playerById[pid].photo : null),
+        faceHiOf: pid => (S.playerById[pid] ? S.playerById[pid].face : null),
+        helpHtml: HELP,
+        onEnd: st => { end(); if (match === m) finishVs(st, m.vs.side); },
+        onQuit: () => { end(); match = null; go('online'); },
+        onSuspend: () => { end(); match = null; go('online'); },
+      });
+      if (match !== m && m.ctrl) m.ctrl.destroy();
+      else if (m.ctrl) net.send({ ready: 1 });
+      return;
+    }
     const bench = [
       sideOf(S.ownedIds().filter(id => !onCourt(0).includes(id)), myTeam(), true, true).players,
       sideOf(m.opp.players.slice(0, 10).map(p => p.id).filter(id => !onCourt(1).includes(id)), m.opp, false, true).players,
