@@ -1,6 +1,6 @@
 // オフラインでも使えるようにファイルを保存しておく
 // ファイルを更新したら VERSION と index.html の ?v= を上げること（上げないと古いままになる）
-const VERSION = 'v1.9.22';
+const VERSION = 'v1.9.23';
 // 選手の写真・顔・ロゴ（約10MB）は、アプリを更新しても取り直さないよう別に保存する
 // （選手データを取り直して画像が変わったときだけ、ここを上げる）
 const ASSETS = 'bp-assets-1';
@@ -29,7 +29,7 @@ const FILES = [
   './icons/logo.png',
 ];
 // 音声ファイル（audio/）も同じく保存して使い回す。曲を差しかえるときはファイル名の数字を上げる
-const isAsset = path => /\/(photos|faces|logos|audio|models3d)\/[^/]+$/.test(path);
+const isAsset = path => /\/(photos|faces|logos|audio)\/[^/]+$/.test(path);
 const isFont = host => host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com';
 
 self.addEventListener('install', e => {
@@ -117,7 +117,7 @@ self.addEventListener('fetch', e => {
   // 写真・顔・ロゴ：保存してあればそれを使う（変わらないので、ネットを見に行かない）
   if (isAsset(url.pathname)) {
     e.respondWith(caches.open(ASSETS).then(async c => {
-      const key = url.pathname.replace(/^.*\/((?:photos|faces|logos|audio|models3d)\/)/, '$1');
+      const key = url.pathname.replace(/^.*\/((?:photos|faces|logos|audio)\/)/, '$1');
       const hit = await c.match(key);
       if (hit) return hit;
       const res = await fetch(e.request);
