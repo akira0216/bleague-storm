@@ -354,6 +354,9 @@ const STYLES = {
   m80: { mascot: 'roll' },
   // 例（いまは使っていない）：選手IDごとに、外部AIのモデルや見た目の特ちょうを書ける
   // '43445': { model: 'models/43445_v3.glb', headband: '#121316', braids: '#17110c', beard: '#1a120c', tattoo: ['rArm', 'calves'], shoes: '#72e3c6', armLen: 1.05 },
+  // トレイ・ボイド：正面の全身写真から TRELLIS.2 で作った体に、MakeHuman の骨（Mixamo形式）を入れたもの
+  // （作り方は別フォルダの 3Dモデル/bl_trellis_rig.py。中身を変えたらファイル名の _v を上げる＝端末に保存した古いものを使わせない）
+  '43445': { model: 'models3d/43445_v1.glb' },
 };
 
 // タトゥーの絵（手足にまきつける）。y0〜y1 は上からの範囲（0〜1）
