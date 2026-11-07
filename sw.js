@@ -1,6 +1,6 @@
 // オフラインでも使えるようにファイルを保存しておく
 // ファイルを更新したら VERSION と index.html の ?v= を上げること（上げないと古いままになる）
-const VERSION = 'v1.9.23';
+const VERSION = 'v1.9.24';
 // 選手の写真・顔・ロゴ（約10MB）は、アプリを更新しても取り直さないよう別に保存する
 // （選手データを取り直して画像が変わったときだけ、ここを上げる）
 const ASSETS = 'bp-assets-1';
@@ -18,6 +18,14 @@ const FILES = [
   './vendor/three.module.min.js',
   './vendor/jsm/GLTFLoader.js',
   './vendor/jsm/BufferGeometryUtils.js',
+  // 3Dモデルの圧縮（Meshopt・KTX2）を読む部品
+  './vendor/jsm/KTX2Loader.js',
+  './vendor/jsm/utils/WorkerPool.js',
+  './vendor/jsm/libs/ktx-parse.module.js',
+  './vendor/jsm/libs/zstddec.module.js',
+  './vendor/jsm/libs/meshopt_decoder.module.js',
+  './vendor/jsm/libs/basis/basis_transcoder.js',
+  './vendor/jsm/libs/basis/basis_transcoder.wasm',
   './data/players.js',
   './data/mascots.js',
   './data/items.js',
@@ -29,7 +37,8 @@ const FILES = [
   './icons/logo.png',
 ];
 // 音声ファイル（audio/）も同じく保存して使い回す。曲を差しかえるときはファイル名の数字を上げる
-const isAsset = path => /\/(photos|faces|logos|audio)\/[^/]+$/.test(path);
+// 3Dモデル（models3d/）も同じ。中身を変えたらファイル名の _v を上げる
+const isAsset = path => /\/(photos|faces|logos|audio|models3d)\/[^/]+$/.test(path);
 const isFont = host => host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com';
 
 self.addEventListener('install', e => {
@@ -117,7 +126,7 @@ self.addEventListener('fetch', e => {
   // 写真・顔・ロゴ：保存してあればそれを使う（変わらないので、ネットを見に行かない）
   if (isAsset(url.pathname)) {
     e.respondWith(caches.open(ASSETS).then(async c => {
-      const key = url.pathname.replace(/^.*\/((?:photos|faces|logos|audio)\/)/, '$1');
+      const key = url.pathname.replace(/^.*\/((?:photos|faces|logos|audio|models3d)\/)/, '$1');
       const hit = await c.match(key);
       if (hit) return hit;
       const res = await fetch(e.request);

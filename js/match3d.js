@@ -33,6 +33,7 @@ const FILL_TIME = 0.68;     // ゲージがいちばん上まで溜まる時間�
 const rand = Math.random;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const d2 = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b)); // a − b を −π〜π で
 const gauss = () => (rand() + rand() + rand() - 1.5) / 0.5;
 const dirOf = side => (side === 0 ? 1 : -1);
 const hoopOf = side => ({ x: dirOf(side) * HX, z: 0 });
@@ -354,6 +355,9 @@ const STYLES = {
   m80: { mascot: 'roll' },
   // 例（いまは使っていない）：選手IDごとに、外部AIのモデルや見た目の特ちょうを書ける
   // '43445': { model: 'models/43445_v3.glb', headband: '#121316', braids: '#17110c', beard: '#1a120c', tattoo: ['rArm', 'calves'], shoes: '#72e3c6', armLen: 1.05 },
+  // トレイ・ボイド：3Dモデル（Meshopt・KTX2 で圧縮）と、動き（ドリブル・フロントチェンジ・スピン・ジャンプシュート・ステップバック3）
+  // （作り方は別フォルダの 3Dモデル/retarget.py。中身を変えたらファイル名の _v を上げる＝端末に保存した古いものを使わせない）
+  '43445': { model: 'models3d/43445_v2.glb', anims: 'models3d/43445_anims_v1.glb' },
 };
 
 // タトゥーの絵（手足にまきつける）。y0〜y1 は上からの範囲（0〜1）
@@ -735,17 +739,59 @@ function autoRig(scene) {
   return out;
 }
 
-let gltfLoader = null;
-async function loadModel(url) {
+let gltfLoader = null, ktx2Set = false;
+let ktx2Renderer = null; // KTX2（圧縮した画像）を読むには、端末がどの圧縮に対応しているかを描画の準備から調べる
+const modelClips = new WeakMap(); // 読みこんだモデル → 動き（名前 → AnimationClip）
+const animCache = new Map();
+async function getLoader() {
+  if (!gltfLoader) {
+    const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+      import('../vendor/jsm/GLTFLoader.js'), import('../vendor/jsm/libs/meshopt_decoder.module.js')]);
+    gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  }
+  if (!ktx2Set && ktx2Renderer) {
+    const { KTX2Loader } = await import('../vendor/jsm/KTX2Loader.js');
+    gltfLoader.setKTX2Loader(new KTX2Loader().setTranscoderPath(new URL('../vendor/jsm/libs/basis/', import.meta.url).href).detectSupport(ktx2Renderer));
+    ktx2Set = true;
+  }
+  return gltfLoader;
+}
+
+// 動きのファイル（骨の名前でモデルにつながる）を読み、ゲーム用に整える
+const SHOT_CLIPS = new Set(['jump_shot', 'stepback3']);
+const MOVE_CLIPS = new Set(['crossover', 'spin_left', 'spin_right']);
+function loadAnims(url) {
+  if (!animCache.has(url)) animCache.set(url, getLoader().then(l => l.loadAsync(url)).then(gl => {
+    const hips = gl.scene.getObjectByName('Hips');
+    const standY = hips ? hips.position.y : 0;
+    const clips = {};
+    gl.animations.forEach(c => {
+      c.tracks.forEach(t => {
+        if (!/^Hips\.position$/.test(t.name)) return;
+        const v = t.values;
+        for (let i = 0; i < v.length; i += 3) {
+          // 前後左右の移動はゲームが決めるので消す（その場で動く）
+          v[i] = v[0]; v[i + 2] = v[2];
+          // シュートのジャンプもゲームが跳ばせるので、腰が立った高さより上がらないようにする
+          if (SHOT_CLIPS.has(c.name)) v[i + 1] = Math.min(v[i + 1], standY);
+        }
+      });
+      clips[c.name] = c;
+    });
+    return clips;
+  }).catch(() => null));
+  return animCache.get(url);
+}
+
+async function loadModel(url, animsUrl) {
   try {
-    if (!gltfLoader) {
-      const { GLTFLoader } = await import('../vendor/jsm/GLTFLoader.js');
-      gltfLoader = new GLTFLoader();
-    }
-    const gl = await gltfLoader.loadAsync(url);
+    const loader = await getLoader();
+    const [gl, clips] = await Promise.all([loader.loadAsync(url), animsUrl ? loadAnims(animsUrl) : null]);
     let skinned = false;
     gl.scene.traverse(o => { if (o.isSkinnedMesh) skinned = true; });
-    return skinned ? gl.scene : autoRig(gl.scene); // 骨がなければ、こちらで入れる
+    const scene = skinned ? gl.scene : autoRig(gl.scene); // 骨がなければ、こちらで入れる
+    if (clips && skinned) modelClips.set(scene, clips);
+    return scene;
   } catch (e) {
     return null; // ファイルがない・読めないときは、いつものモデル
   }
@@ -819,6 +865,18 @@ function attachModel(lk, src, sty) {
   // いつもの体はかくす（動きの計算には使う）
   lk.body.traverse(o => { if (o.isMesh) o.visible = false; });
   lk.model = { holder, links, ok: links.length >= 6 };
+  // 動きのデータがあれば、ドリブルやシュートのときに再生する（ほかのときは、いつもの体の関節に合わせて動かす）
+  const clips = modelClips.get(src);
+  if (lk.model.ok && clips) {
+    const mixer = new THREE.AnimationMixer(model);
+    const acts = {};
+    Object.values(clips).forEach(c => {
+      const a = mixer.clipAction(c);
+      if (c.name !== 'dribble') { a.setLoop(THREE.LoopOnce); a.clampWhenFinished = true; }
+      acts[c.name] = a;
+    });
+    lk.model.anim = { mixer, acts, cur: null, slowHead: null, cd: 0, face0: 0 };
+  }
   if (!lk.model.ok) {
     // 骨が見つからなければ、うごかさずに立たせておくよりも、いつもの体にもどす
     holder.removeFromParent();
@@ -2010,7 +2068,7 @@ class Match {
       kitOf(B.team) && c1 === '#' + k1.getHexString() && { ...kitOf(B.team), logo: logoTex(awayLogo) }, // 白ユニフォームにかえたときは使わない
     ];
     // 外部AIのモデル（ある選手だけ）
-    const models = await Promise.all([A, B].flatMap(s => s.players.map(p => (STYLES[p.pid] && STYLES[p.pid].model ? loadModel(STYLES[p.pid].model) : null))));
+    const models = await Promise.all([A, B].flatMap(s => s.players.map(p => (STYLES[p.pid] && STYLES[p.pid].model ? loadModel(STYLES[p.pid].model, STYLES[p.pid].anims) : null))));
     this.players = [A, B].map((s, side) => s.players.map((info, i) => {
       const kit = kits[side];
       const jc = kit ? kit.base : side === 0 ? c0 : c1;
@@ -2256,6 +2314,7 @@ class Match {
     r.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     r.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer = r;
+    ktx2Renderer = r;
     const s = new THREE.Scene();
     s.background = new THREE.Color('#0c1220');
     s.fog = new THREE.Fog('#0c1220', 40, 80);
@@ -2602,7 +2661,7 @@ class Match {
     const K = this.kitInfo[side];
     const look = buildPlayer({ ...info }, K.jc, K.fg, face, K.badge, K.kit);
     const sty = STYLES[info.pid];
-    if (sty && sty.model) { const m = await loadModel(sty.model); if (m) attachModel(look, m, look.sty); }
+    if (sty && sty.model) { const m = await loadModel(sty.model, sty.anims); if (m) attachModel(look, m, look.sty); }
     if (this.stopped) return;
     const j = bench.findIndex(q => q.pid === info.pid);
     if (j < 0) return;
@@ -2867,6 +2926,13 @@ class Match {
     // ゴール近くで勢いがあり、ビッグマンかドライブが得意ならダンク
     p.shotKind = this.state === 'ft' ? 'ft' : dh < 2.0 && spd > 2.6 && (big || p.r.drive >= 75 || this.ifx(p).dunk >= 4 || this.has(p, 'sky')) ? 'dunk' : dh < 2.6 ? 'layup' : 'jumper';
     p.layup = p.shotKind === 'dunk' || p.shotKind === 'layup';
+    // 3Dモデルの動き（見た目だけ）：スリーを後ろに下がりながら打つときはステップバック。CPU・自動のシュートはときどき
+    p.shotAnim = 'jump_shot';
+    if (p.look.model && p.look.model.anim && p.shotKind === 'jumper' && this.is3(p, p.side)) {
+      const back = -(p.vel.x * (h.x - p.pos.x) + p.vel.z * (h.z - p.pos.z)) / (dh || 1);
+      const auto = !this.human(p.side) || p !== this.ctrls[p.side];
+      if (back > 0.8 || (auto && rand() < 0.4)) p.shotAnim = 'stepback3';
+    }
     if (!this.human(p.side) || p !== this.ctrls[p.side]) {
       const attr = this.shotAttr(p);
       const sd = clamp(0.13 - (attr - 50) * 0.0018, 0.035, 0.15);
@@ -3774,7 +3840,67 @@ class Match {
       L.sh.rotation.set(-s * sw * 0.9, 0, -0.12); R.sh.rotation.set(s * sw * 0.9, 0, 0.12);
       L.el.rotation.x = -0.3 - sw * 0.5; R.el.rotation.x = -0.3 - sw * 0.5;
     }
-    if (lk.model) poseModel(lk);
+    if (lk.model) this.animModel(p, dt);
+  }
+
+  // 3Dモデルの動き：ドリブル・シュート・技は動きのデータを再生し、ほかはいつもの体の関節に合わせる
+  animModel(p, dt) {
+    const lk = p.look, m = lk.model, A = m.anim;
+    if (!A) return poseModel(lk);
+    const b = this.ball;
+    const cur = A.cur, curA = cur && A.acts[cur];
+    const done = !curA || (curA.loop === THREE.LoopOnce && curA.time >= curA.getClip().duration - 1e-3);
+    let name = null, t = null;
+    // ドリブル中に大きく向きを変えたら、フロントチェンジかスピン（見た目だけ。試合の結果は変わらない）
+    const spd = Math.hypot(p.vel.x, p.vel.z);
+    const holding = b.holder === p && !p.act && this.state === 'play';
+    A.cd -= dt;
+    let move = null;
+    if (holding && spd > 1.5) {
+      const head = Math.atan2(p.vel.x, p.vel.z);
+      if (A.slowHead === null) A.slowHead = head;
+      const diff = angDiff(head, A.slowHead);
+      A.slowHead += diff * Math.min(1, dt * 3); // 少し前の向き（ゆっくり追いかける）
+      if (A.cd <= 0 && cur === 'dribble' && Math.abs(diff) > 0.85) {
+        move = Math.abs(diff) > 1.75 ? (diff > 0 ? 'spin_left' : 'spin_right') : 'crossover';
+        A.cd = 1.6;
+      }
+    } else A.slowHead = holding ? A.slowHead : null;
+    if (p.act === 'shoot' && (p.shotKind === 'jumper' || p.shotKind === 'ft')) {
+      // シュート：ゲームが跳ぶ時刻に、動きの踏み切りを合わせる
+      name = p.shotAnim || 'jump_shot';
+      const jv = p.shotKind === 'ft' ? 1.2 : 2.9;
+      const aj = Math.max(0.05, PERFECT * FILL_TIME - jv / 11);
+      const [s0, to] = name === 'stepback3' ? [0, 0.82] : [0.5, 0.95];
+      t = p.actT < aj ? s0 + (to - s0) * p.actT / aj : to + (p.actT - aj);
+    } else if (SHOT_CLIPS.has(cur) && !done && p.act === 'land') {
+      name = cur; // 打ったあと：着地まで続ける
+    } else if (holding) {
+      if (move) name = move;
+      else if (MOVE_CLIPS.has(cur) && !done) name = cur;
+      else name = 'dribble';
+    }
+    if (name !== cur || move) {
+      if (curA && name !== cur) curA.fadeOut(0.18);
+      if (name) {
+        const a = A.acts[name];
+        a.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
+        if (MOVE_CLIPS.has(name)) A.face0 = lk.root.rotation.y;
+      }
+      A.cur = name;
+    }
+    if (name) {
+      const a = A.acts[name];
+      if (t !== null) { a.timeScale = 0; a.time = Math.min(t, a.getClip().duration); } else a.timeScale = 1;
+      // 技の間は、体の向きを元の向きから今の向きへゆっくり回す（スピンはその上で1回転する）
+      if (MOVE_CLIPS.has(name)) {
+        const u = Math.min(1, a.time / a.getClip().duration), k = u * u * (3 - 2 * u);
+        lk.root.rotation.y = A.face0 + angDiff(p.face, A.face0) * k;
+      }
+    }
+    A.mixer.update(dt);
+    if (name) m.holder.position.y = 0;
+    else poseModel(lk); // 動きのデータを使わないときは、いつもの体の関節に合わせる
   }
 
   render() {
@@ -3886,8 +4012,7 @@ class Match {
 
 window.Match3D = {
   async start(o) {
-    const m = new Match(o);
-    await m.init();
+    const m = new Match(o);    await m.init();
     return m;
   },
 };
