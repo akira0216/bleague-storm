@@ -2385,6 +2385,8 @@ class Match {
     clearInterval(this.saveTimer);
     document.removeEventListener('visibilitychange', this.onHide);
     window.removeEventListener('pagehide', this.onHide);
+    if (this.onNetVis) document.removeEventListener('visibilitychange', this.onNetVis);
+    if (this.wake) { this.wake.release().catch(() => {}); this.wake = null; }
     document.removeEventListener('gesturestart', this.onGesture);
     this.renderer.dispose();
   }
@@ -2395,6 +2397,22 @@ class Match {
   netInit() {
     this.net.onMessage(m => this.onNet(m));
     this.net.onClose(() => this.netLost('接続が切れました'));
+    if (this.net.onState) this.net.onState(s => this.netState(s));
+    // 「再接続しています」の表示
+    const nw = this.ui.netWait = document.createElement('div');
+    nw.className = 'm3d-netwait';
+    this.el.appendChild(nw);
+    // アプリが裏に回ったら相手に知らせる。対戦中は画面が自動で消えないようにする
+    this.wake = null;
+    const lock = async () => {
+      try { if (navigator.wakeLock && !document.hidden && !this.stopped && !this.wake) { this.wake = await navigator.wakeLock.request('screen'); this.wake.addEventListener('release', () => { this.wake = null; }); } } catch (e) { /* 使えない端末 */ }
+    };
+    this.onNetVis = () => {
+      if (this.net.away) this.net.away(document.hidden);
+      if (!document.hidden) { this.last = performance.now(); lock(); }
+    };
+    document.addEventListener('visibilitychange', this.onNetVis);
+    lock();
     if (this.guest) {
       this.snaps = [];
       this.rt = null;
@@ -2425,9 +2443,38 @@ class Match {
     this.crowd.cheer(power, home);
   }
 
+  // 通信の具合が変わった：'lost'（つなぎ直し中）・'away'（相手がアプリを離れた）・'ok'（もどった）
+  netState(s) {
+    if (this.stopped || this.ended) return; // 試合が終わったあと（相手がやめた など）は出さない
+    const nw = this.ui.netWait;
+    this.netWait = s !== 'ok';
+    if (s === 'ok') {
+      nw.classList.remove('show');
+      this.last = performance.now();
+      // ゲスト：切れているあいだに離したボタンなどを、もう一度送る
+      if (this.guest) {
+        Object.keys(this.btn).forEach(k => this.send({ k, d: !!this.btn[k] }));
+        this.send({ j: [Math.round(this.joy.x * 100) / 100, Math.round(this.joy.z * 100) / 100] });
+        this.netJoy = { x: this.joy.x, z: this.joy.z };
+      }
+      return;
+    }
+    // ホスト：止めているあいだ、ゲストの入力は離したことにする
+    if (!this.guest && this.inp && this.inp[1]) {
+      const I = this.inp[1];
+      I.joy = { x: 0, z: 0 };
+      Object.keys(I.btn).forEach(k => { I.btn[k] = false; });
+    }
+    nw.innerHTML = s === 'away'
+      ? '<b>相手がアプリを離れています</b><small>もどるまで待っています</small>'
+      : '<b>接続が不安定です</b><small>つなぎ直しています…</small>';
+    nw.classList.add('show');
+  }
+
   netLost(msg) {
     if (this.ended || this.stopped) return;
     this.ended = true;
+    if (this.ui.netWait) this.ui.netWait.classList.remove('show');
     this.call(msg, '試合を終了します', 'END');
     setTimeout(() => { if (this.stopped) return; this.destroy(); this.o.onQuit(); }, 2200);
   }
@@ -2463,6 +2510,8 @@ class Match {
     this.netT = (this.netT || 0) + dt;
     this.boxT = (this.boxT || 0) + dt;
     if (this.netT < 1 / 30) return;
+    // 送りきれていないデータがたまっているときは、今回は送らない（古い状態をためこまず、送れるようになったら最新を送る）
+    if (this.net.busy && this.net.busy()) return;
     this.netT = 0;
     const R = v => Math.round(v * 1000) / 1000;
     const st = this.st, b = this.ball, all = this.all();
@@ -2477,8 +2526,8 @@ class Match {
       h: this.hoops.map(h => [R(h.net.userData.swish || 0), R(h.rim.userData.shake || 0)]),
       e: this.out.splice(0),
     };
-    // 個人成績は、点が入ったときと0.5秒ごと
-    if (this.boxT > 0.5 || s.e.some(e => e[0] === 'ann')) {
+    // 個人成績は、点が入ったときと1秒ごと
+    if (this.boxT > 1 || s.e.some(e => e[0] === 'ann')) {
       this.boxT = 0;
       s.box = st.box; s.qs = st.qScores; s.stam = this.stam;
     }
@@ -3341,6 +3390,7 @@ class Match {
       if (this.players) this.all().forEach(p => this.animate(p, dt));
     }
     else if (this.intro) this.updateIntro(dt);
+    else if (this.netWait) { if (this.players) this.all().forEach(p => this.animate(p, dt)); } // 通信対戦：つなぎ直すまで止める
     else if (!this.paused && this.players) this.update(dt);
     if (!this.stopped) this.render();
   }

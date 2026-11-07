@@ -660,20 +660,138 @@
   }
 
   // 試合に渡す通信の窓口
+  // 一瞬切れても試合を終わらせず、つなぎ直して続ける：
+  // ・1秒ごとに合図を送り合い、4秒届かなければ「切れた」とみなす
+  // ・切れたら、ゲストがホストの部屋へつなぎ直す（試合ごとの合言葉で本人か確かめる）。25秒もどらなければ終了
+  // ・アプリが裏に回るときは相手に知らせる（相手は90秒まで待つ）
+  const NET_HB = 1000, NET_DEAD = 4000, NET_GIVEUP = 25000, NET_AWAY = 90000, NET_RETRY = 2000;
   function netOf(lb) {
-    const ls = [], cs = [];
+    const ls = [], cs = [], ss = [];
+    let conn = null, lost = false, lostAt = 0, peerAway = false, awayAt = 0, closed = false;
+    let lastRecv = Date.now(), hbAt = 0, retryAt = 0, trying = null, tryingAt = 0;
+    const now = () => Date.now();
+    const tell = s => ss.forEach(f => f(s));
+    const keepPeer = p => {
+      p.on('disconnected', () => { if (!closed && !p.destroyed) try { p.reconnect(); } catch (e) { /* */ } });
+      p.on('error', () => { /* 試合中のエラーは、つなぎ直しで対応する */ });
+    };
+    // つないだ線を使う（はじめの線と、つなぎ直した線）
+    const wire = c => {
+      wireOn(c, d => {
+        if (closed || !d) return;
+        if (c !== conn) { if (d.rejoinOk && lb.role === 'guest') adopt(c); return; }
+        lastRecv = now();
+        if (d.hb) return;
+        if (d.away !== undefined) {
+          peerAway = !!d.away; awayAt = now();
+          if (!lost) tell(peerAway ? 'away' : 'ok');
+          return;
+        }
+        if (d.ready) w.ready = true;
+        ls.forEach(f => f(d));
+      });
+      const down = () => { if (c === conn && !closed) goLost(); };
+      c.on('close', down);
+      c.on('error', down);
+    };
+    const adopt = c => {
+      const old = conn;
+      conn = c; lost = false; peerAway = false; lastRecv = now(); trying = null;
+      if (old && old !== c) try { old.close(); } catch (e) { /* */ }
+      tell('ok');
+    };
+    const goLost = () => {
+      if (lost || closed) return;
+      lost = true; lostAt = now(); retryAt = 0;
+      // 古い線は閉じる（片方向だけ届いている場合も、相手がすぐ気づいてつなぎ直せる）
+      try { conn.close(); } catch (e) { /* */ }
+      tell('lost');
+    };
+    const giveUp = () => {
+      if (closed) return;
+      w.close();
+      cs.forEach(f => f());
+    };
+    // ゲスト：ホストの部屋へつなぎ直す
+    const rejoin = () => {
+      let p = lb.peer;
+      if (!p || p.destroyed) { p = lb.peer = new Peer(); keepPeer(p); return; }
+      if (p.disconnected) { try { p.reconnect(); } catch (e) { /* */ } return; }
+      if (!p.open) return;
+      // つなぎかけの線は6秒までは待つ（つながるまで数秒かかることがある）
+      if (trying) { if (now() - tryingAt < 6000) return; try { trying.close(); } catch (e) { /* */ } }
+      tryingAt = now();
+      const c = trying = p.connect(ROOM_PREFIX + lb.code, { reliable: true, serialization: 'json' });
+      wire(c);
+      c.on('open', () => { if (!closed) wireSend(c, { rejoin: lb.tok }); });
+      const fail = () => { if (trying === c) trying = null; }; // だめだったら、次はすぐ試す
+      c.on('close', fail);
+      c.on('error', fail);
+    };
+    // ホスト：部屋を開けておく（接続サービスから外れたら入り直す）
+    const keepRoom = () => {
+      const p = lb.peer;
+      if (!p || p.destroyed) {
+        const q = lb.peer = new Peer(ROOM_PREFIX + lb.code);
+        keepPeer(q);
+        q.on('connection', lb.onConn);
+      } else if (p.disconnected) { try { p.reconnect(); } catch (e) { /* */ } }
+    };
+    const timer = setInterval(() => {
+      if (closed) return;
+      const t = now();
+      if (!lost) {
+        if (t - hbAt >= NET_HB) { hbAt = t; try { wireSend(conn, { hb: 1 }); } catch (e) { /* */ } }
+        if (peerAway) { if (t - awayAt > NET_AWAY) giveUp(); }
+        else if (t - lastRecv > NET_DEAD) goLost();
+        return;
+      }
+      if (t - lostAt > (peerAway ? NET_AWAY : NET_GIVEUP)) return giveUp();
+      if (t - retryAt < NET_RETRY) return;
+      retryAt = t;
+      if (lb.role === 'guest') rejoin(); else keepRoom();
+    }, 250);
     const w = {
       role: lb.role,
       ready: false,
-      send: m => { try { wireSend(lb.conn, m); } catch (e) { /* 切れている */ } },
+      send: m => { if (!lost && !closed) try { wireSend(conn, m); } catch (e) { /* 切れている */ } },
+      // 送りきれていないデータがたまっている（このあいだは新しい状態を送らない）
+      busy: () => {
+        if (lost || !conn || !conn.open) return true;
+        const dc = conn.dataChannel;
+        return (conn.bufferSize || 0) > 0 || (dc && dc.bufferedAmount > 32 * 1024);
+      },
       onMessage: f => ls.push(f),
       onClose: f => cs.push(f),
-      close: () => { if (lobby === lb) lobby = null; try { lb.conn.close(); } catch (e) { /* */ } setTimeout(() => { try { lb.peer.destroy(); } catch (e) { /* */ } }, 300); },
+      onState: f => ss.push(f), // 'lost'（再接続中）・'away'（相手がアプリを離れた）・'ok'（もどった）
+      // 自分のアプリが裏に回った・もどった
+      away: hidden => {
+        if (closed) return;
+        if (!lost) try { wireSend(conn, { away: hidden ? 1 : 0 }); } catch (e) { /* */ }
+        if (!hidden) {
+          // 裏にいるあいだは時計が止まっているので、待ち時間を数え直す
+          lastRecv = now();
+          if (lost) { lostAt = now(); retryAt = 0; }
+        }
+      },
+      // ホスト：つなぎ直しに来た線を受け入れる
+      adopt: c => { wire(c); adopt(c); },
+      close: () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(timer);
+        if (lobby === lb) lobby = null;
+        const c = conn, p = lb.peer;
+        setTimeout(() => { try { c.close(); } catch (e) { /* */ } }, 150); // 最後のメッセージ（bye など）を送りきってから
+        setTimeout(() => { try { p.destroy(); } catch (e) { /* */ } }, 400);
+      },
     };
-    lb.conn.off('data');
-    wireOn(lb.conn, d => { if (d && d.ready) w.ready = true; ls.forEach(f => f(d)); });
-    lb.conn.on('close', () => cs.forEach(f => f()));
-    lb.peer.on('disconnected', () => { try { lb.peer.reconnect(); } catch (e) { /* */ } });
+    conn = lb.conn;
+    conn.off('data');
+    conn.off('close');
+    wire(conn);
+    keepPeer(lb.peer);
+    lb.net = w;
     return w;
   }
 
@@ -706,11 +824,23 @@
       lb.peer = peer;
       peer.on('open', () => { if (lobby !== lb) return peer.destroy(); lb.code = code; lb.msg = '相手が入るのを待っています…'; renderOnline(); });
       peer.on('error', e => {
-        if (lobby !== lb) return;
+        if (lobby !== lb || lb.started) return; // 試合が始まってからは、つなぎ直しで対応する（ここで閉じると試合が切れる）
         if (e.type === 'unavailable-id' && ++tries < 6) { peer.destroy(); return open(); } // 番号が使われていたら別の番号で
         lobbyFail('部屋を作れませんでした（' + e.type + '）');
       });
-      peer.on('connection', conn => {
+      peer.on('connection', lb.onConn);
+    };
+    lb.onConn = conn => {
+        if (lb.started) {
+          // 試合中：つなぎ直しに来た相手（合言葉が合えば）だけ受け入れる
+          const first = d => {
+            conn.off('data', first);
+            if (d && d.rejoin && lb.tok && d.rejoin === lb.tok && lb.net) { lb.net.adopt(conn); wireSend(conn, { rejoinOk: 1 }); }
+            else { wireSend(conn, { full: 1 }); setTimeout(() => conn.close(), 500); }
+          };
+          conn.on('data', first);
+          return;
+        }
         if (lb.conn) { conn.on('open', () => { wireSend(conn, { full: 1 }); setTimeout(() => conn.close(), 500); }); return; }
         lb.conn = conn;
         wireOn(conn, d => {
@@ -721,11 +851,11 @@
           const st = Game.create(me, d.hello.side, Math.min(S.data.quarterMin, 5));
           const bench = [myVsBench(me), d.hello.bench || []];
           // データが届いていても、こちら側の open がまだのことがある（open の前に送ると捨てられる）
-          const go2 = () => { wireSend(conn, { start: { st, bench } }); startVs(lb, st, bench); };
+          lb.tok = Math.random().toString(36).slice(2, 10) + Date.now().toString(36); // つなぎ直しのときの合言葉
+          const go2 = () => { wireSend(conn, { start: { st, bench, tok: lb.tok } }); startVs(lb, st, bench); };
           if (conn.open) go2(); else conn.once('open', go2);
         });
         conn.on('close', () => { if (lobby === lb && !lb.started) { lb.conn = null; lb.msg = '相手が抜けました。待っています…'; renderOnline(); } });
-      });
     };
     open();
   }
@@ -741,7 +871,7 @@
     lb.peer = peer;
     const timer = setTimeout(() => { if (lobby === lb && !lb.started) lobbyFail('つながりませんでした。部屋番号と、同じWi-Fiにいるかを確認してください'); }, 15000);
     peer.on('error', e => {
-      if (lobby !== lb) return;
+      if (lobby !== lb || lb.started) return; // 試合が始まってからは、つなぎ直しで対応する
       clearTimeout(timer);
       lobbyFail(e.type === 'peer-unavailable' ? 'その番号の部屋が見つかりません' : 'つながりませんでした（' + e.type + '）');
     });
@@ -759,7 +889,7 @@
         if (lobby !== lb || !d) return;
         if (d.full) { clearTimeout(timer); return lobbyFail('その部屋はもう対戦中です'); }
         if (d.verNg) { clearTimeout(timer); return lobbyFail('アプリのバージョンが違います。両方とも最新にしてください（相手 ' + d.verNg + '・自分 ' + APP_VER + '）'); }
-        if (d.start && !lb.started) { clearTimeout(timer); lb.started = true; startVs(lb, d.start.st, d.start.bench); }
+        if (d.start && !lb.started) { clearTimeout(timer); lb.started = true; lb.tok = d.start.tok; startVs(lb, d.start.st, d.start.bench); }
       });
     });
   }

@@ -509,6 +509,20 @@ body.playing { overflow: hidden; }
 /* 長いお知らせ（ファウル・スローインなど）は小さめにして、画面からはみ出さない */
 .m3d-pop.long { font-size: clamp(16px, 3.4vw, 28px); white-space: normal; width: max-content; max-width: 88vw; text-align: center; line-height: 1.3; }
 
+/* ===== 通信対戦：つなぎ直しているあいだの表示 ===== */
+.m3d-netwait {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none;
+  display: none; flex-direction: column; align-items: center; gap: 6px; padding: 16px 22px; border-radius: 12px;
+  background: rgba(8, 12, 22, .82); color: #fff; text-align: center; max-width: 86vw;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+}
+.m3d-netwait.show { display: flex; }
+.m3d-netwait b { font-size: 18px; font-weight: 900; }
+.m3d-netwait small { font-size: 13px; color: #c7d2e6; }
+.m3d-netwait b::before { content: ''; display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -1px;
+  border: 2px solid #ffd23f; border-top-color: transparent; border-radius: 50%; animation: netSpin .9s linear infinite; }
+@keyframes netSpin { to { transform: rotate(360deg); } }
+
 /* ===== 審判のコール・試合の区切り：左からさっと出るカード ===== */
 .m3d-call {
   position: absolute; left: 0; top: calc(env(safe-area-inset-top) + 96px); z-index: 3; pointer-events: none;
