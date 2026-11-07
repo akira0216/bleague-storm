@@ -360,6 +360,8 @@ const STYLES = {
   '43445': { model: 'models3d/43445_v2.glb', anims: 'models3d/43445_anims_v2.glb' },
   // 大橋大空：3Dモデルと動き（作り方はボイド選手と同じ。動きはこのモデルの骨に合わせて作り直したもの）
   '51000274': { model: 'models3d/51000274_v2.glb', anims: 'models3d/51000274_anims_v2.glb' },
+  // クーリバリ セリンムルタラ：3Dモデルと動き（作り方は同じ）
+  '55000957': { model: 'models3d/55000957_v1.glb', anims: 'models3d/55000957_anims_v1.glb' },
 };
 
 // タトゥーの絵（手足にまきつける）。y0〜y1 は上からの範囲（0〜1）
