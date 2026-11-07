@@ -355,9 +355,9 @@ const STYLES = {
   m80: { mascot: 'roll' },
   // 例（いまは使っていない）：選手IDごとに、外部AIのモデルや見た目の特ちょうを書ける
   // '43445': { model: 'models/43445_v3.glb', headband: '#121316', braids: '#17110c', beard: '#1a120c', tattoo: ['rArm', 'calves'], shoes: '#72e3c6', armLen: 1.05 },
-  // トレイ・ボイド：3Dモデル（Meshopt・KTX2 で圧縮）と、動き（ドリブル・フロントチェンジ・スピン・ジャンプシュート・ステップバック3）
+  // トレイ・ボイド：3Dモデル（Meshopt・KTX2 で圧縮）と、動き（ドリブル・フロントチェンジ・ジャンプシュート・ステップバック3。ドリブルとフロントチェンジはボールの位置も入っている）
   // （作り方は別フォルダの 3Dモデル/retarget.py。中身を変えたらファイル名の _v を上げる＝端末に保存した古いものを使わせない）
-  '43445': { model: 'models3d/43445_v2.glb', anims: 'models3d/43445_anims_v1.glb' },
+  '43445': { model: 'models3d/43445_v2.glb', anims: 'models3d/43445_anims_v2.glb' },
 };
 
 // タトゥーの絵（手足にまきつける）。y0〜y1 は上からの範囲（0〜1）
@@ -759,7 +759,8 @@ async function getLoader() {
 
 // 動きのファイル（骨の名前でモデルにつながる）を読み、ゲーム用に整える
 const SHOT_CLIPS = new Set(['jump_shot', 'stepback3']);
-const MOVE_CLIPS = new Set(['crossover', 'spin_left', 'spin_right']);
+const MOVE_CLIPS = new Set(['crossover', 'crossover_l']);           // crossover：右手→左手、crossover_l：左手→右手
+const BALL_CLIPS = new Set(['dribble', 'dribble_l', 'crossover', 'crossover_l']); // ボールの位置（Ball）が入っている動き
 function loadAnims(url) {
   if (!animCache.has(url)) animCache.set(url, getLoader().then(l => l.loadAsync(url)).then(gl => {
     const hips = gl.scene.getObjectByName('Hips');
@@ -872,10 +873,15 @@ function attachModel(lk, src, sty) {
     const acts = {};
     Object.values(clips).forEach(c => {
       const a = mixer.clipAction(c);
-      if (c.name !== 'dribble') { a.setLoop(THREE.LoopOnce); a.clampWhenFinished = true; }
+      if (!c.name.startsWith('dribble')) { a.setLoop(THREE.LoopOnce); a.clampWhenFinished = true; }
       acts[c.name] = a;
     });
-    lk.model.anim = { mixer, acts, cur: null, slowHead: null, cd: 0, face0: 0 };
+    // ボールの位置を受ける入れ物（動きのデータの「Ball」が、手の動きに合わせて動かす）
+    const ballNode = new THREE.Object3D();
+    ballNode.name = 'Ball';
+    (model.getObjectByName('Armature') || model).add(ballNode);
+    // hand：今ボールを持っている手（'L' 左・'R' 右）。いつものドリブルは左手（+x）側
+    lk.model.anim = { mixer, acts, cur: null, slowHead: null, cd: 0, face0: 0, ballNode, hand: 'L', ballW: 0, sign: 1, by: 0, down: false };
   }
   if (!lk.model.ok) {
     // 骨が見つからなければ、うごかさずに立たせておくよりも、いつもの体にもどす
@@ -887,6 +893,7 @@ function attachModel(lk, src, sty) {
 
 // 毎フレーム：いつもの体の関節の向き → モデルの骨の向き
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _rq = new THREE.Quaternion();
+const _ballV = new THREE.Vector3();
 const _v0 = new THREE.Vector3(), _v1 = new THREE.Vector3(), _down = new THREE.Vector3();
 function poseModel(lk) {
   const m = lk.model;
@@ -2590,6 +2597,7 @@ class Match {
     }
     all.forEach(q => this.animate(q, dt));
     this.ballMesh(dt);
+    this.ballToHand();
   }
 
   // ---------- ルール ----------
@@ -3395,6 +3403,7 @@ class Match {
     } else this.bgmT = 0;
     this.updateBall(dt);
     this.all().forEach(p => this.animate(p, dt));
+    this.ballToHand();
     if (this.net) this.netTick(dt);
   }
 
@@ -3727,8 +3736,16 @@ class Match {
     this.ballMesh(dt);
   }
 
+  // 3Dモデルの動きでドリブルしているとき：体を動かしたあとの手の位置にボールを合わせなおす（1コマ遅れないように）
+  ballToHand() {
+    const b = this.ball, h = b.holder;
+    const A = h && h.look.model && h.look.model.anim;
+    if (b.mode === 'held' && A && A.ballW > 0) { this.heldBall(h, true); this.ballMesh(0); }
+  }
+
   // ボールを持っている選手の手元のボールの位置（ドリブル中は、床に着く向きの sin を返す）
-  heldBall(p) {
+  // again：同じコマでの2回目（音の判定はしない）
+  heldBall(p, again = false) {
     const b = this.ball;
     const lk = p.look;
     if (p.act === 'shoot' && p.shotKind === 'dunk') {
@@ -3742,11 +3759,27 @@ class Match {
       b.pos.set(p.pos.x + Math.sin(side) * 0.28, p.y + lk.height * (0.7 + up * 0.5), p.pos.z + Math.cos(side) * 0.28);
     } else if (p.act === 'shoot') {
       b.pos.set(p.pos.x + Math.sin(p.face) * 0.15, p.y + lk.height * (0.95 + Math.min(p.actT * 0.5, 0.25)), p.pos.z + Math.cos(p.face) * 0.15);
+    } else if (this.state === 'throwin') {
+      // スローイン：ドリブルせず、胸の前で両手で持つ
+      b.pos.set(p.pos.x + Math.sin(p.face) * 0.32, p.y + lk.height * 0.62, p.pos.z + Math.cos(p.face) * 0.32);
     } else {
-      const side = p.face + Math.PI / 2 * 0.7;
+      // 3Dモデルの動きがある選手は、ボールを持っている手の側でつく
+      const A = lk.model && lk.model.anim;
+      const side = p.face + Math.PI / 2 * 0.7 * (A && A.hand === 'R' ? -1 : 1);
       const sn = Math.sin(this.time * 8.5);
       const bounce = Math.abs(sn);
       b.pos.set(p.pos.x + Math.sin(side) * 0.38, 0.13 + bounce * 0.82 + p.y, p.pos.z + Math.cos(side) * 0.38);
+      if (A && A.ballW > 0) {
+        // 動きのデータのボールの位置（手の動きに合わせたもの）へ寄せる
+        const v = A.ballNode.getWorldPosition(_ballV);
+        b.pos.lerp(v, A.ballW);
+        // 床で跳ねた瞬間（下がる → 上がる）に符号を変えて、ドリブルの音を鳴らす
+        if (!again) {
+          if (A.down && v.y > A.by + 1e-4) A.sign = -A.sign;
+          A.down = v.y < A.by - 1e-4; A.by = v.y;
+        }
+        if (A.ballW > 0.5) return A.sign;
+      }
       return sn;
     }
     return null;
@@ -3826,13 +3859,19 @@ class Match {
     } else if (p.act === 'reach') {
       L.sh.rotation.set(-1.4, 0, -0.1); R.sh.rotation.set(-1.4, 0, 0.1);
       L.el.rotation.x = 0; R.el.rotation.x = 0;
+    } else if (b.holder === p && this.state === 'throwin') {
+      // スローイン：胸の前で両手で持つ
+      L.sh.rotation.set(-1.1, 0, -0.12); R.sh.rotation.set(-1.1, 0, 0.12);
+      L.el.rotation.x = -1.6; R.el.rotation.x = -1.6;
     } else if (b.holder === p) {
-      // ドリブル：右手でボールをつく
+      // ドリブル：右手でボールをつく（3Dモデルの動きがある選手は、ボールを持っている手で）
+      const A = lk.model && lk.model.anim, rh = A && A.hand === 'R';
+      const D = rh ? L : R, O = rh ? R : L, sg = rh ? -1 : 1;
       const bounce = Math.abs(Math.sin(this.time * 8.5));
-      R.sh.rotation.set(-0.5 + bounce * 0.25, 0, 0.55);
-      R.el.rotation.x = -0.6 + bounce * 0.4;
-      L.sh.rotation.set(-s * sw * 0.8, 0, -0.2);
-      L.el.rotation.x = -0.4;
+      D.sh.rotation.set(-0.5 + bounce * 0.25, 0, 0.55 * sg);
+      D.el.rotation.x = -0.6 + bounce * 0.4;
+      O.sh.rotation.set(-s * sw * 0.8, 0, -0.2 * sg);
+      O.el.rotation.x = -0.4;
     } else if (stance) {
       L.sh.rotation.set(-0.3, 0, -1.0); R.sh.rotation.set(-0.3, 0, 1.0);
       L.el.rotation.x = -0.6; R.el.rotation.x = -0.6;
@@ -3851,7 +3890,7 @@ class Match {
     const cur = A.cur, curA = cur && A.acts[cur];
     const done = !curA || (curA.loop === THREE.LoopOnce && curA.time >= curA.getClip().duration - 1e-3);
     let name = null, t = null;
-    // ドリブル中に大きく向きを変えたら、フロントチェンジかスピン（見た目だけ。試合の結果は変わらない）
+    // ドリブル中に大きく向きを変えたら、フロントチェンジ（見た目だけ。試合の結果は変わらない）
     const spd = Math.hypot(p.vel.x, p.vel.z);
     const holding = b.holder === p && !p.act && this.state === 'play';
     A.cd -= dt;
@@ -3861,8 +3900,8 @@ class Match {
       if (A.slowHead === null) A.slowHead = head;
       const diff = angDiff(head, A.slowHead);
       A.slowHead += diff * Math.min(1, dt * 3); // 少し前の向き（ゆっくり追いかける）
-      if (A.cd <= 0 && cur === 'dribble' && Math.abs(diff) > 0.85) {
-        move = Math.abs(diff) > 1.75 ? (diff > 0 ? 'spin_left' : 'spin_right') : 'crossover';
+      if (A.cd <= 0 && !MOVE_CLIPS.has(cur) && Math.abs(diff) > 0.85) {
+        move = A.hand === 'L' ? 'crossover_l' : 'crossover';
         A.cd = 1.6;
       }
     } else A.slowHead = holding ? A.slowHead : null;
@@ -3878,8 +3917,11 @@ class Match {
     } else if (holding) {
       if (move) name = move;
       else if (MOVE_CLIPS.has(cur) && !done) name = cur;
-      else name = 'dribble';
+      // 止まっているときだけ、その場のドリブル。走っているときは、これまでどおりの動き（name = null）
+      else if (spd < 0.6 || (cur && cur.startsWith('dribble') && spd < 1.0)) name = A.hand === 'L' ? 'dribble_l' : 'dribble';
     }
+    // フロントチェンジが終わったら（途中で止めても）、ボールを持つ手が入れかわる
+    if (MOVE_CLIPS.has(cur) && name !== cur) A.hand = cur === 'crossover' ? 'L' : 'R';
     if (name !== cur || move) {
       if (curA && name !== cur) curA.fadeOut(0.18);
       if (name) {
@@ -3899,6 +3941,8 @@ class Match {
       }
     }
     A.mixer.update(dt);
+    // ボールを手の動きに合わせる割合（切りかえのときは 0.15 秒かけて移す）
+    A.ballW = clamp(A.ballW + (name && BALL_CLIPS.has(name) ? dt : -dt) / 0.15, 0, 1);
     if (name) m.holder.position.y = 0;
     else poseModel(lk); // 動きのデータを使わないときは、いつもの体の関節に合わせる
   }
@@ -4012,7 +4056,8 @@ class Match {
 
 window.Match3D = {
   async start(o) {
-    const m = new Match(o);    await m.init();
+    const m = new Match(o);
+    await m.init();
     return m;
   },
 };
