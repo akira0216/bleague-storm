@@ -3350,6 +3350,8 @@ class Match {
     this.crowd.ribbons.forEach(t => { t.offset.x = (t.offset.x + dt * 0.02) % 1; });
     if (this.jumbo) this.jumbo.draw(this.st, Math.max(0, Math.ceil(this.shotClock)));
     this.all().forEach(p => this.animate(p, dt));
+    // ボールを持っている選手がいれば、手元（胸の前で両手）に合わせる
+    if (this.ball.mode === 'held' && this.ball.holder) { this.heldBall(this.ball.holder); this.ballMesh(dt); }
     if (this.intro.t >= this.intro.dur) this.endIntro();
   }
 
@@ -3759,8 +3761,8 @@ class Match {
       b.pos.set(p.pos.x + Math.sin(side) * 0.28, p.y + lk.height * (0.7 + up * 0.5), p.pos.z + Math.cos(side) * 0.28);
     } else if (p.act === 'shoot') {
       b.pos.set(p.pos.x + Math.sin(p.face) * 0.15, p.y + lk.height * (0.95 + Math.min(p.actT * 0.5, 0.25)), p.pos.z + Math.cos(p.face) * 0.15);
-    } else if (this.state === 'throwin') {
-      // スローイン：ドリブルせず、胸の前で両手で持つ
+    } else if (this.state === 'throwin' || this.state === 'dead') {
+      // スローイン・試合開始の前など（プレーが止まっているとき）：ドリブルせず、胸の前で両手で持つ
       b.pos.set(p.pos.x + Math.sin(p.face) * 0.32, p.y + lk.height * 0.62, p.pos.z + Math.cos(p.face) * 0.32);
     } else {
       // 3Dモデルの動きがある選手は、ボールを持っている手の側でつく
@@ -3859,8 +3861,8 @@ class Match {
     } else if (p.act === 'reach') {
       L.sh.rotation.set(-1.4, 0, -0.1); R.sh.rotation.set(-1.4, 0, 0.1);
       L.el.rotation.x = 0; R.el.rotation.x = 0;
-    } else if (b.holder === p && this.state === 'throwin') {
-      // スローイン：胸の前で両手で持つ
+    } else if (b.holder === p && (this.state === 'throwin' || this.state === 'dead')) {
+      // スローイン・試合開始の前など：胸の前で両手で持つ
       L.sh.rotation.set(-1.1, 0, -0.12); R.sh.rotation.set(-1.1, 0, 0.12);
       L.el.rotation.x = -1.6; R.el.rotation.x = -1.6;
     } else if (b.holder === p) {
@@ -3890,21 +3892,10 @@ class Match {
     const cur = A.cur, curA = cur && A.acts[cur];
     const done = !curA || (curA.loop === THREE.LoopOnce && curA.time >= curA.getClip().duration - 1e-3);
     let name = null, t = null;
-    // ドリブル中に大きく向きを変えたら、フロントチェンジ（見た目だけ。試合の結果は変わらない）
     const spd = Math.hypot(p.vel.x, p.vel.z);
     const holding = b.holder === p && !p.act && this.state === 'play';
-    A.cd -= dt;
-    let move = null;
-    if (holding && spd > 1.5) {
-      const head = Math.atan2(p.vel.x, p.vel.z);
-      if (A.slowHead === null) A.slowHead = head;
-      const diff = angDiff(head, A.slowHead);
-      A.slowHead += diff * Math.min(1, dt * 3); // 少し前の向き（ゆっくり追いかける）
-      if (A.cd <= 0 && !MOVE_CLIPS.has(cur) && Math.abs(diff) > 0.85) {
-        move = A.hand === 'L' ? 'crossover_l' : 'crossover';
-        A.cd = 1.6;
-      }
-    } else A.slowHead = holding ? A.slowHead : null;
+    // フロントチェンジ（crossover）の動きはファイルにあるが、手とボールが合いきらないので使わない
+    const move = null;
     if (p.act === 'shoot' && (p.shotKind === 'jumper' || p.shotKind === 'ft')) {
       // シュート：ゲームが跳ぶ時刻に、動きの踏み切りを合わせる
       name = p.shotAnim || 'jump_shot';
