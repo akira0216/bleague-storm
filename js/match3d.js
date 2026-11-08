@@ -362,6 +362,8 @@ const STYLES = {
   '51000274': { model: 'models3d/51000274_v2.glb', anims: 'models3d/51000274_anims_v2.glb' },
   // クーリバリ セリンムルタラ：3Dモデルと動き（作り方は同じ）
   '55000957': { model: 'models3d/55000957_v1.glb', anims: 'models3d/55000957_anims_v1.glb' },
+  // ザック・モーア：3Dモデルと動き（作り方は同じ）
+  '5100000063': { model: 'models3d/5100000063_v1.glb', anims: 'models3d/5100000063_anims_v1.glb' },
 };
 
 // タトゥーの絵（手足にまきつける）。y0〜y1 は上からの範囲（0〜1）
